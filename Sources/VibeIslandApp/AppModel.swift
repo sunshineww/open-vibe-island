@@ -43,6 +43,23 @@ final class AppModel {
     @ObservationIgnored
     private let terminalJumpService = TerminalJumpService()
 
+    @ObservationIgnored
+    private let codexSessionStore = CodexSessionStore()
+
+    @ObservationIgnored
+    private let codexRolloutWatcher = CodexRolloutWatcher()
+
+    @ObservationIgnored
+    private var codexSessionPersistenceTask: Task<Void, Never>?
+
+    init() {
+        codexRolloutWatcher.eventHandler = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.applyTrackedEvent(event, updateLastActionMessage: false)
+            }
+        }
+    }
+
     var sessions: [AgentSession] {
         state.sessions
     }
@@ -172,8 +189,10 @@ final class AppModel {
             return
         }
 
+        restorePersistedCodexSessions()
         hooksBinaryURL = HooksBinaryLocator.locate()
         refreshCodexHookStatus()
+        refreshCodexRolloutTracking()
 
         do {
             try bridgeServer.start()
@@ -201,15 +220,7 @@ final class AppModel {
 
                 do {
                     for try await event in stream {
-                        self.state.apply(event)
-
-                        if self.selectedSessionID == nil || self.state.session(id: self.selectedSessionID) == nil {
-                            self.selectedSessionID = self.state.activeActionableSession?.id ?? self.state.sessions.first?.id
-                        } else if let activeAction = self.state.activeActionableSession {
-                            self.selectedSessionID = activeAction.id
-                        }
-
-                        self.lastActionMessage = self.describe(event)
+                        self.applyTrackedEvent(event)
                     }
                 } catch {
                     self.isBridgeReady = false
@@ -373,20 +384,95 @@ final class AppModel {
         }
     }
 
+    private func applyTrackedEvent(
+        _ event: AgentEvent,
+        updateLastActionMessage: Bool = true
+    ) {
+        state.apply(event)
+        synchronizeSelection()
+        refreshCodexRolloutTracking()
+        scheduleCodexSessionPersistence()
+
+        if updateLastActionMessage {
+            lastActionMessage = describe(event)
+        }
+    }
+
+    private func synchronizeSelection() {
+        if selectedSessionID == nil || state.session(id: selectedSessionID) == nil {
+            selectedSessionID = state.activeActionableSession?.id ?? state.sessions.first?.id
+        } else if let activeAction = state.activeActionableSession {
+            selectedSessionID = activeAction.id
+        }
+    }
+
+    private func restorePersistedCodexSessions() {
+        do {
+            let records = try codexSessionStore.load()
+                .filter { $0.updatedAt >= Date.now.addingTimeInterval(-86_400) }
+            guard !records.isEmpty else {
+                return
+            }
+
+            state = SessionState(sessions: records.map(\.session))
+            synchronizeSelection()
+            lastActionMessage = "Restored \(records.count) recent Codex session(s) from local cache."
+        } catch {
+            lastActionMessage = "Failed to restore Codex session cache: \(error.localizedDescription)"
+        }
+    }
+
+    private func refreshCodexRolloutTracking() {
+        let targets = state.sessions.compactMap { session -> CodexRolloutWatchTarget? in
+            guard session.tool == .codex,
+                  let transcriptPath = session.codexMetadata?.transcriptPath,
+                  !transcriptPath.isEmpty else {
+                return nil
+            }
+
+            return CodexRolloutWatchTarget(
+                sessionID: session.id,
+                transcriptPath: transcriptPath
+            )
+        }
+
+        codexRolloutWatcher.sync(targets: targets)
+    }
+
+    private func scheduleCodexSessionPersistence() {
+        codexSessionPersistenceTask?.cancel()
+
+        let records = state.sessions
+            .filter { $0.tool == .codex && $0.updatedAt >= Date.now.addingTimeInterval(-86_400) }
+            .map(CodexTrackedSessionRecord.init(session:))
+        let store = codexSessionStore
+
+        codexSessionPersistenceTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(for: .milliseconds(250))
+            try? store.save(records)
+        }
+    }
+
     private func describe(_ event: AgentEvent) -> String {
         switch event {
         case let .sessionStarted(payload):
-            "Session started: \(payload.title)"
+            return "Session started: \(payload.title)"
         case let .activityUpdated(payload):
-            payload.summary
+            return payload.summary
         case let .permissionRequested(payload):
-            payload.request.summary
+            return payload.request.summary
         case let .questionAsked(payload):
-            payload.prompt.title
+            return payload.prompt.title
         case let .sessionCompleted(payload):
-            payload.summary
+            return payload.summary
         case let .jumpTargetUpdated(payload):
-            "Jump target updated to \(payload.jumpTarget.terminalApp)."
+            return "Jump target updated to \(payload.jumpTarget.terminalApp)."
+        case let .sessionMetadataUpdated(payload):
+            if let currentTool = payload.codexMetadata.currentTool {
+                return "Codex is running \(currentTool)."
+            }
+
+            return payload.codexMetadata.lastAssistantMessage ?? "Codex session metadata updated."
         }
     }
 }

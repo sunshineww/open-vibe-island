@@ -353,7 +353,8 @@ public final class DemoBridgeServer: @unchecked Sendable {
                     tool: .codex,
                     summary: payload.implicitStartSummary,
                     timestamp: .now,
-                    jumpTarget: payload.defaultJumpTarget
+                    jumpTarget: payload.defaultJumpTarget,
+                    codexMetadata: payload.defaultCodexMetadata.isEmpty ? nil : payload.defaultCodexMetadata
                 )
             )
 
@@ -363,6 +364,7 @@ public final class DemoBridgeServer: @unchecked Sendable {
         case .userPromptSubmit:
             ensureSessionExists(for: payload)
             synchronizeJumpTarget(for: payload)
+            synchronizeCodexMetadata(for: payload)
             let prompt = payload.promptPreview ?? "User submitted a prompt to Codex."
             emit(
                 .activityUpdated(
@@ -379,6 +381,7 @@ public final class DemoBridgeServer: @unchecked Sendable {
         case .preToolUse:
             ensureSessionExists(for: payload)
             synchronizeJumpTarget(for: payload)
+            synchronizeCodexMetadata(for: payload)
 
             let command = payload.commandPreview ?? "Bash command"
             guard !payload.permissionMode.bypassesIslandApproval else {
@@ -445,6 +448,7 @@ public final class DemoBridgeServer: @unchecked Sendable {
         case .postToolUse:
             ensureSessionExists(for: payload)
             synchronizeJumpTarget(for: payload)
+            synchronizeCodexMetadata(for: payload)
             let command = payload.commandPreview ?? "Bash command"
             let responsePreview = payload.toolResponsePreview
             let summary = responsePreview.map { "Bash finished: \(command) · \($0)" } ?? "Bash finished: \(command)"
@@ -464,6 +468,7 @@ public final class DemoBridgeServer: @unchecked Sendable {
         case .stop:
             ensureSessionExists(for: payload)
             synchronizeJumpTarget(for: payload)
+            synchronizeCodexMetadata(for: payload)
             let summary = payload.assistantMessagePreview ?? "Codex completed the turn."
 
             emit(
@@ -500,7 +505,8 @@ public final class DemoBridgeServer: @unchecked Sendable {
                     tool: .codex,
                     summary: payload.implicitStartSummary,
                     timestamp: .now,
-                    jumpTarget: payload.defaultJumpTarget
+                    jumpTarget: payload.defaultJumpTarget,
+                    codexMetadata: payload.defaultCodexMetadata.isEmpty ? nil : payload.defaultCodexMetadata
                 )
             )
         )
@@ -525,6 +531,68 @@ public final class DemoBridgeServer: @unchecked Sendable {
                 )
             )
         )
+    }
+
+    private func synchronizeCodexMetadata(for payload: CodexHookPayload) {
+        guard let existingSession = state.session(id: payload.sessionID) else {
+            return
+        }
+
+        let mergedMetadata = mergedCodexMetadata(
+            existing: existingSession.codexMetadata,
+            update: payload.defaultCodexMetadata,
+            hookEventName: payload.hookEventName
+        )
+        guard !mergedMetadata.isEmpty else {
+            return
+        }
+
+        guard existingSession.codexMetadata != mergedMetadata else {
+            return
+        }
+
+        emit(
+            .sessionMetadataUpdated(
+                SessionMetadataUpdated(
+                    sessionID: payload.sessionID,
+                    codexMetadata: mergedMetadata,
+                    timestamp: .now
+                )
+            )
+        )
+    }
+
+    private func mergedCodexMetadata(
+        existing: CodexSessionMetadata?,
+        update: CodexSessionMetadata,
+        hookEventName: CodexHookEventName
+    ) -> CodexSessionMetadata {
+        CodexSessionMetadata(
+            transcriptPath: update.transcriptPath ?? existing?.transcriptPath,
+            lastAssistantMessage: update.lastAssistantMessage ?? existing?.lastAssistantMessage,
+            currentTool: mergedCurrentTool(
+                existing: existing?.currentTool,
+                update: update.currentTool,
+                hookEventName: hookEventName
+            )
+        )
+    }
+
+    private func mergedCurrentTool(
+        existing: String?,
+        update: String?,
+        hookEventName: CodexHookEventName
+    ) -> String? {
+        if let update {
+            return update
+        }
+
+        switch hookEventName {
+        case .userPromptSubmit, .postToolUse, .stop:
+            return nil
+        case .sessionStart, .preToolUse:
+            return existing
+        }
     }
 
     private func resolvePendingApproval(sessionID: String, approved: Bool) {

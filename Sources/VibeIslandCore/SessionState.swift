@@ -51,7 +51,8 @@ public struct SessionState: Equatable, Sendable {
                 phase: .running,
                 summary: payload.summary,
                 updatedAt: payload.timestamp,
-                jumpTarget: payload.jumpTarget
+                jumpTarget: payload.jumpTarget,
+                codexMetadata: payload.codexMetadata?.isEmpty == true ? nil : payload.codexMetadata
             )
             upsert(session)
 
@@ -113,6 +114,15 @@ public struct SessionState: Equatable, Sendable {
             }
 
             session.jumpTarget = payload.jumpTarget
+            session.updatedAt = payload.timestamp
+            upsert(session)
+
+        case let .sessionMetadataUpdated(payload):
+            guard var session = sessionsByID[payload.sessionID] else {
+                return
+            }
+
+            session.codexMetadata = payload.codexMetadata.isEmpty ? nil : payload.codexMetadata
             session.updatedAt = payload.timestamp
             upsert(session)
         }

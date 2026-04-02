@@ -274,6 +274,14 @@ public extension CodexHookPayload {
         )
     }
 
+    var defaultCodexMetadata: CodexSessionMetadata {
+        CodexSessionMetadata(
+            transcriptPath: transcriptPath,
+            lastAssistantMessage: lastAssistantMessage,
+            currentTool: toolName
+        )
+    }
+
     var implicitStartSummary: String {
         switch hookEventName {
         case .sessionStart:

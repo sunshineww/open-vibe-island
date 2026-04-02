@@ -133,6 +133,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
     public var permissionRequest: PermissionRequest?
     public var questionPrompt: QuestionPrompt?
     public var jumpTarget: JumpTarget?
+    public var codexMetadata: CodexSessionMetadata?
 
     public init(
         id: String,
@@ -143,7 +144,8 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         updatedAt: Date,
         permissionRequest: PermissionRequest? = nil,
         questionPrompt: QuestionPrompt? = nil,
-        jumpTarget: JumpTarget? = nil
+        jumpTarget: JumpTarget? = nil,
+        codexMetadata: CodexSessionMetadata? = nil
     ) {
         self.id = id
         self.title = title
@@ -154,5 +156,6 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         self.permissionRequest = permissionRequest
         self.questionPrompt = questionPrompt
         self.jumpTarget = jumpTarget
+        self.codexMetadata = codexMetadata
     }
 }
