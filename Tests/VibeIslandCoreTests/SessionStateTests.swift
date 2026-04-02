@@ -301,6 +301,59 @@ struct SessionStateTests {
         #expect(removed.changed)
         #expect(!removed.contents.contains("codex_hooks = true"))
     }
+
+    @Test
+    func codexHookPayloadInfersTerminalAppFromRuntimeEnvironment() throws {
+        let payload = CodexHookPayload(
+            cwd: "/tmp/worktree",
+            hookEventName: .sessionStart,
+            model: "gpt-5-codex",
+            permissionMode: .default,
+            sessionID: "session-1",
+            transcriptPath: nil
+        )
+
+        let inferredITerm = payload.withRuntimeContext(environment: [
+            "TERM_PROGRAM": "iTerm.app",
+            "ITERM_SESSION_ID": "w0t0p0",
+        ])
+        #expect(inferredITerm.terminalApp == "iTerm")
+
+        let inferredGhostty = payload.withRuntimeContext(environment: [
+            "TERM_PROGRAM": "ghostty",
+        ])
+        #expect(inferredGhostty.terminalApp == "Ghostty")
+        #expect(inferredGhostty.defaultJumpTarget.workingDirectory == "/tmp/worktree")
+    }
+
+    @Test
+    func codexHookInstallationManagerRoundTripsInstallAndUninstall() throws {
+        let codexDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibe-island-tests-\(UUID().uuidString)", isDirectory: true)
+        let manager = CodexHookInstallationManager(codexDirectory: codexDirectory)
+        let hooksBinaryURL = codexDirectory.appendingPathComponent("VibeIslandHooks")
+
+        try FileManager.default.createDirectory(at: codexDirectory, withIntermediateDirectories: true)
+        try Data().write(to: hooksBinaryURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hooksBinaryURL.path)
+
+        defer {
+            try? FileManager.default.removeItem(at: codexDirectory)
+        }
+
+        let installed = try manager.install(hooksBinaryURL: hooksBinaryURL)
+        #expect(installed.featureFlagEnabled)
+        #expect(installed.managedHooksPresent)
+        #expect(installed.manifest?.hookCommand == CodexHookInstaller.hookCommand(for: hooksBinaryURL.path))
+
+        let reloaded = try manager.status(hooksBinaryURL: hooksBinaryURL)
+        #expect(reloaded.managedHooksPresent)
+        #expect(reloaded.featureFlagEnabled)
+
+        let uninstalled = try manager.uninstall()
+        #expect(!uninstalled.managedHooksPresent)
+        #expect(!FileManager.default.fileExists(atPath: uninstalled.manifestURL.path))
+    }
 }
 
 private enum SessionStateTestError: Error {

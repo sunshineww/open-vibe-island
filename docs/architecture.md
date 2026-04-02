@@ -41,6 +41,8 @@ The current bridge server still lives inside the app process for convenience, bu
 4. The app consumes normalized `AgentEvent` values from that socket and sends approval commands back over the same bridge.
 5. A separate setup CLI owns `config.toml` and `hooks.json` edits so installation and rollback stay explicit and reversible.
 
+The hook helper also enriches Codex payloads with local runtime hints from the terminal environment. That allows the app to record a probable terminal app and working directory even though Codex hooks do not directly expose a native macOS window handle.
+
 For `PreToolUse`, the hook helper waits for the bridge response. If the island denies the request, the helper writes the blocking JSON shape that Codex already understands. If the app is unavailable, the helper fails open so the terminal flow remains unchanged.
 
 ## Suggested Build Order

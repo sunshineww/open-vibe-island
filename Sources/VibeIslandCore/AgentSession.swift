@@ -61,11 +61,18 @@ public struct JumpTarget: Equatable, Codable, Sendable {
     public var terminalApp: String
     public var workspaceName: String
     public var paneTitle: String
+    public var workingDirectory: String?
 
-    public init(terminalApp: String, workspaceName: String, paneTitle: String) {
+    public init(
+        terminalApp: String,
+        workspaceName: String,
+        paneTitle: String,
+        workingDirectory: String? = nil
+    ) {
         self.terminalApp = terminalApp
         self.workspaceName = workspaceName
         self.paneTitle = paneTitle
+        self.workingDirectory = workingDirectory
     }
 }
 

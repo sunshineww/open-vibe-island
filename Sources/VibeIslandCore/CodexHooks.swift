@@ -78,6 +78,7 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
     public var model: String
     public var permissionMode: CodexPermissionMode
     public var sessionID: String
+    public var terminalApp: String?
     public var transcriptPath: String?
     public var source: String?
     public var turnID: String?
@@ -95,6 +96,7 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
         case model
         case permissionMode = "permission_mode"
         case sessionID = "session_id"
+        case terminalApp = "terminal_app"
         case transcriptPath = "transcript_path"
         case source
         case turnID = "turn_id"
@@ -113,6 +115,7 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
         model: String,
         permissionMode: CodexPermissionMode,
         sessionID: String,
+        terminalApp: String? = nil,
         transcriptPath: String?,
         source: String? = nil,
         turnID: String? = nil,
@@ -129,6 +132,7 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
         self.model = model
         self.permissionMode = permissionMode
         self.sessionID = sessionID
+        self.terminalApp = terminalApp
         self.transcriptPath = transcriptPath
         self.source = source
         self.turnID = turnID
@@ -148,6 +152,7 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
         model = try container.decode(String.self, forKey: .model)
         permissionMode = try container.decodeIfPresent(CodexPermissionMode.self, forKey: .permissionMode) ?? .default
         sessionID = try container.decode(String.self, forKey: .sessionID)
+        terminalApp = try container.decodeIfPresent(String.self, forKey: .terminalApp)
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         source = try container.decodeIfPresent(String.self, forKey: .source)
         turnID = try container.decodeIfPresent(String.self, forKey: .turnID)
@@ -234,9 +239,10 @@ public extension CodexHookPayload {
 
     var defaultJumpTarget: JumpTarget {
         JumpTarget(
-            terminalApp: "Terminal",
+            terminalApp: terminalApp ?? "Terminal",
             workspaceName: workspaceName,
-            paneTitle: "Codex \(sessionID.prefix(8))"
+            paneTitle: "Codex \(sessionID.prefix(8))",
+            workingDirectory: cwd
         )
     }
 
@@ -325,6 +331,48 @@ public extension CodexHookPayload {
                 }
                 .joined(separator: ", ")
             return "{\(rendered)}"
+        }
+    }
+}
+
+public extension CodexHookPayload {
+    func withRuntimeContext(environment: [String: String]) -> CodexHookPayload {
+        var payload = self
+
+        if payload.terminalApp == nil {
+            payload.terminalApp = inferTerminalApp(from: environment)
+        }
+
+        return payload
+    }
+
+    private func inferTerminalApp(from environment: [String: String]) -> String? {
+        if environment["ITERM_SESSION_ID"] != nil || environment["LC_TERMINAL"] == "iTerm2" {
+            return "iTerm"
+        }
+
+        if environment["GHOSTTY_RESOURCES_DIR"] != nil {
+            return "Ghostty"
+        }
+
+        if environment["WARP_IS_LOCAL_SHELL_SESSION"] != nil {
+            return "Warp"
+        }
+
+        let termProgram = environment["TERM_PROGRAM"]?.lowercased()
+        switch termProgram {
+        case .some("apple_terminal"):
+            return "Terminal"
+        case .some("iterm.app"), .some("iterm2"):
+            return "iTerm"
+        case let value? where value.contains("ghostty"):
+            return "Ghostty"
+        case let value? where value.contains("warp"):
+            return "Warp"
+        case let value? where value.contains("wezterm"):
+            return "WezTerm"
+        default:
+            return nil
         }
     }
 }

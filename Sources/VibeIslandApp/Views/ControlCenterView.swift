@@ -41,6 +41,8 @@ struct ControlCenterView: View {
                 .buttonStyle(.bordered)
             }
 
+            setupCard
+
             VStack(alignment: .leading, spacing: 12) {
                 Text("Sessions")
                     .font(.headline)
@@ -61,6 +63,66 @@ struct ControlCenterView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: 360, alignment: .topLeading)
+    }
+
+    private var setupCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Codex Attach")
+                        .font(.headline)
+                    Text(model.codexHookStatusTitle)
+                        .font(.subheadline.weight(.medium))
+                    Text(model.codexHookStatusSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+                Circle()
+                    .fill(model.codexHooksInstalled ? Color.mint : Color.orange)
+                    .frame(width: 10, height: 10)
+            }
+
+            if let hooksBinaryURL = model.hooksBinaryURL {
+                Text(hooksBinaryURL.path)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+            } else {
+                Text("No local `VibeIslandHooks` executable was found. Build the package first.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 10) {
+                Button("Refresh") {
+                    model.refreshCodexHookStatus()
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isCodexSetupBusy)
+
+                Button("Install") {
+                    model.installCodexHooks()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.isCodexSetupBusy || model.hooksBinaryURL == nil)
+
+                Button("Uninstall") {
+                    model.uninstallCodexHooks()
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isCodexSetupBusy || !model.codexHooksInstalled)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(0.08))
+        )
     }
 
     private var detailColumn: some View {
@@ -117,8 +179,8 @@ struct ControlCenterView: View {
                         }
                     }
                 } else {
-                    actionCard(title: "Next step", subtitle: "Terminal jump placeholder") {
-                        Text("Terminal focus restoration is not wired yet, but the model already tracks the target pane.")
+                    actionCard(title: "Jump Back", subtitle: "Best-effort terminal focus") {
+                        Text("The island will activate the detected terminal and, when possible, reopen the session workspace there.")
                             .foregroundStyle(.secondary)
 
                         Button("Jump to Session") {

@@ -11,7 +11,9 @@ struct VibeIslandHooksCLI {
             }
 
             let decoder = JSONDecoder()
-            let payload = try decoder.decode(CodexHookPayload.self, from: input)
+            let payload = try decoder
+                .decode(CodexHookPayload.self, from: input)
+                .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
 
             let client = BridgeCommandClient(socketURL: BridgeSocketLocation.currentURL())
             guard let response = try? client.send(.processCodexHook(payload)) else {

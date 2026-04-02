@@ -116,6 +116,30 @@ struct MenuBarContentView: View {
                 model.resetDemo()
             }
 
+            Divider()
+
+            Text(model.codexHookStatusTitle)
+                .font(.subheadline.weight(.semibold))
+            Text(model.codexHookStatusSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Refresh Codex Hook Status") {
+                model.refreshCodexHookStatus()
+            }
+
+            if model.codexHooksInstalled {
+                Button("Uninstall Codex Hooks") {
+                    model.uninstallCodexHooks()
+                }
+            } else {
+                Button("Install Codex Hooks") {
+                    model.installCodexHooks()
+                }
+                .disabled(model.hooksBinaryURL == nil)
+            }
+
             if let session = model.focusedSession {
                 Divider()
                 Text(session.title)

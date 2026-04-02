@@ -38,6 +38,8 @@ open Package.swift
 
 Open the package in Xcode to run the macOS app target. The app now starts an empty local bridge and waits for real Codex hook events. Use `Restart Demo` in the UI if you want the old mock timeline back.
 
+The control center now also shows live Codex hook install status from `~/.codex`, and can install or uninstall the managed hook entries directly if it can locate a local `VibeIslandHooks` executable.
+
 ## Codex Hook MVP
 
 Enable the official Codex hook feature flag once:
@@ -131,6 +133,14 @@ If you want to manage the files yourself, a minimal `~/.codex/hooks.json` shape 
 ```
 
 The helper reads the Codex hook payload from `stdin`, forwards it to the app bridge over a Unix socket in `/tmp`, and only writes JSON to `stdout` when the island explicitly denies a `PreToolUse` Bash command. If the app or bridge is unavailable, the hook fails open and Codex keeps running unchanged.
+
+## Jump Back
+
+Codex hook ingestion now captures terminal hints from the hook process environment, such as `TERM_PROGRAM`, `ITERM_SESSION_ID`, and Ghostty-specific variables. The island uses those hints to power a best-effort `Jump` action:
+
+- activate the detected terminal app when possible
+- reopen the recorded working directory in that terminal as a fallback
+- keep the existing CLI workflow unchanged even when exact pane restoration is not yet available
 
 ## Repository Layout
 
