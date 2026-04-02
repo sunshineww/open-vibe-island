@@ -40,6 +40,19 @@ Open the package in Xcode to run the macOS app target. The app now starts an emp
 
 The control center now also shows live Codex hook install status from `~/.codex`, and can install or uninstall the managed hook entries directly if it can locate a local `VibeIslandHooks` executable.
 
+## First Acceptance
+
+The current `v0.1` build is ready for a first acceptance pass. The shortest path is:
+
+1. Run the app from Xcode or `swift run VibeIslandApp`.
+2. In the left column, make the `v0.1 Acceptance` card reach at least `3/5`.
+3. Install Codex hooks from the app if they are not already installed.
+4. Show the island overlay once.
+5. Start `codex` from your terminal and wait for the first session row to appear.
+6. Trigger one approval or one jump-back action and confirm the island responds.
+
+You can also click `Run Demo Acceptance` in the app to sanity-check the UI flow before starting a real Codex session.
+
 ## Codex Hook MVP
 
 Enable the official Codex hook feature flag once:
