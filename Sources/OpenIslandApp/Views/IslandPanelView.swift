@@ -340,7 +340,7 @@ struct IslandPanelView: View {
 
         let currentWidth = usesOpenedVisualState ? openedWidth : closedTotalWidth
         let currentHeight = usesOpenedVisualState ? openedHeight : closedTotalHeight
-        let horizontalInset = usesOpenedVisualState ? 14.0 : 20.0
+        let horizontalInset = usesOpenedVisualState ? 14.0 : 10.0
         let bottomInset = usesOpenedVisualState ? 14.0 : 0.0
         let surfaceWidth = currentWidth + (horizontalInset * 2)
         let surfaceHeight = currentHeight + bottomInset
