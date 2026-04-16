@@ -257,13 +257,11 @@ struct IslandPanelView: View {
         guard hasClosedPresence else { return 0 }
         let hasPending = closedSpotlightSession?.phase.requiresAttention == true
         let phase = closedScoutPhase
-        // Left: scout(14) + iconSpacing(2) + badge(14)
+        // Left: scout(14) + iconSpacing(2) + badge(14) + spacing(4) + toolLabel + spinner
         var leftWidth: CGFloat = 14 + 2 + 14
-        // Compact spinner
         if phase == .compacting {
             leftWidth += 2 + 12  // spacing + spinner
         }
-        // Tool label text (e.g. "Edit", "Bash", "Compact")
         if let label = closedToolLabel {
             let estimatedTextWidth = CGFloat(label.count) * 6.5
             leftWidth += 4 + max(36, estimatedTextWidth)
@@ -271,8 +269,11 @@ struct IslandPanelView: View {
         if hasPending {
             leftWidth += 18  // attention indicator
         }
+        // Right: count badge
         let rightWidth = max(sideWidth, countBadgeWidth) + (hasPending ? 18 : 0)
-        return leftWidth + rightWidth + 24 + (hasPending ? 6 : 0)
+        // Use 2x the larger side so the centered layout never overlaps the notch
+        let sideMax = max(leftWidth, rightWidth)
+        return (sideMax * 2) + 24 + (hasPending ? 6 : 0)
     }
 
     /// Composite key combining `hasClosedPresence` and `expansionWidth` so a
@@ -339,7 +340,7 @@ struct IslandPanelView: View {
 
         let currentWidth = usesOpenedVisualState ? openedWidth : closedTotalWidth
         let currentHeight = usesOpenedVisualState ? openedHeight : closedTotalHeight
-        let horizontalInset = usesOpenedVisualState ? 14.0 : 14.0
+        let horizontalInset = usesOpenedVisualState ? 14.0 : 20.0
         let bottomInset = usesOpenedVisualState ? 14.0 : 0.0
         let surfaceWidth = currentWidth + (horizontalInset * 2)
         let surfaceHeight = currentHeight + bottomInset
@@ -453,6 +454,7 @@ struct IslandPanelView: View {
                                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                                 .foregroundStyle(scoutTint.opacity(0.8))
                                 .lineLimit(1)
+                                .fixedSize()
                                 .transition(.opacity)
                         }
 
@@ -463,7 +465,6 @@ struct IslandPanelView: View {
                             )
                         }
                     }
-                    .fixedSize()
                 }
 
                 if !hasClosedPresence {
@@ -471,7 +472,7 @@ struct IslandPanelView: View {
                         .frame(minWidth: closedNotchWidth - 20)
                 } else {
                     Spacer()
-                        .frame(minWidth: 20)
+                        .frame(minWidth: closedNotchWidth - 16)
                 }
 
                 if hasClosedPresence {
@@ -2235,48 +2236,53 @@ struct MenuBarContentView: View {
 extension MarkdownUI.Theme {
     @MainActor static let completionCard = Theme()
         .text {
-            ForegroundColor(.white.opacity(0.88))
+            ForegroundColor(.white.opacity(0.9))
             FontSize(13.5)
-            FontWeight(.medium)
+            FontWeight(.regular)
         }
         .link {
-            ForegroundColor(.blue)
+            ForegroundColor(Color(red: 0.4, green: 0.7, blue: 1.0))
         }
         .strong {
-            FontWeight(.bold)
+            FontWeight(.semibold)
+            ForegroundColor(.white.opacity(0.95))
         }
         .code {
             FontFamilyVariant(.monospaced)
-            FontSize(12.5)
-            ForegroundColor(.white.opacity(0.88))
-            BackgroundColor(.white.opacity(0.08))
+            FontSize(12)
+            ForegroundColor(Color(red: 0.7, green: 0.85, blue: 1.0))
+            BackgroundColor(.white.opacity(0.06))
         }
         .codeBlock { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontFamilyVariant(.monospaced)
-                    FontSize(12.5)
-                    ForegroundColor(.white.opacity(0.88))
+                    FontSize(12)
+                    ForegroundColor(.white.opacity(0.85))
                 }
-                .padding(10)
-                .background(Color.white.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(12)
+                .background(Color.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.white.opacity(0.06))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .heading1 { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontSize(16)
                     FontWeight(.bold)
-                    ForegroundColor(.white.opacity(0.88))
+                    ForegroundColor(.white.opacity(0.95))
                 }
-                .markdownMargin(top: 8, bottom: 4)
+                .markdownMargin(top: 10, bottom: 4)
         }
         .heading2 { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontSize(15)
                     FontWeight(.bold)
-                    ForegroundColor(.white.opacity(0.88))
+                    ForegroundColor(.white.opacity(0.92))
                 }
                 .markdownMargin(top: 8, bottom: 4)
         }
@@ -2285,20 +2291,21 @@ extension MarkdownUI.Theme {
                 .markdownTextStyle {
                     FontSize(14)
                     FontWeight(.semibold)
-                    ForegroundColor(.white.opacity(0.88))
+                    ForegroundColor(.white.opacity(0.9))
                 }
                 .markdownMargin(top: 6, bottom: 2)
         }
         .blockquote { configuration in
             configuration.label
                 .markdownTextStyle {
-                    ForegroundColor(.white.opacity(0.6))
-                    FontSize(13.5)
+                    ForegroundColor(.white.opacity(0.55))
+                    FontSize(13)
+                    FontStyle(.italic)
                 }
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.2))
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Color.white.opacity(0.15))
                         .frame(width: 3)
                 }
         }
