@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cyberpunk Card Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #050508;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    overflow: hidden;
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 255, 229, 0.015) 2px,
+      rgba(0, 255, 229, 0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  .card-container {
+    width: 680px;
+    position: relative;
+  }
+
+  /* Glow background behind card */
+  .card-container::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    background: linear-gradient(135deg, #00ffe5, #ff00aa, #00ffe5);
+    border-radius: 18px;
+    opacity: 0.6;
+    filter: blur(8px);
+    animation: borderPulse 3s ease-in-out infinite;
+    z-index: -1;
+  }
+
+  @keyframes borderPulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+  }
+
+  .card {
+    background: linear-gradient(180deg, #0a0a14 0%, #0d0d1a 100%);
+    border: 1px solid rgba(0, 255, 229, 0.3);
+    border-radius: 16px;
+    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Circuit line decoration */
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 24px;
+    right: 24px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #00ffe5, transparent);
+    opacity: 0.3;
+  }
+
+  /* Grid pattern overlay */
+  .card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, rgba(0, 255, 229, 0.02) 1px, transparent 1px),
+      linear-gradient(rgba(0, 255, 229, 0.02) 1px, transparent 1px);
+    background-size: 20px 20px;
+    pointer-events: none;
+    border-radius: 16px;
+  }
+
+  /* Header row */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .scout-icon {
+    width: 32px;
+    height: 32px;
+    image-rendering: pixelated;
+    filter: drop-shadow(0 0 6px rgba(0, 255, 136, 0.6));
+    animation: scoutFloat 2s ease-in-out infinite;
+  }
+
+  @keyframes scoutFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-2px); }
+  }
+
+  .badge-icon {
+    width: 24px;
+    height: 24px;
+    image-rendering: pixelated;
+    filter: drop-shadow(0 0 4px rgba(0, 255, 136, 0.5));
+  }
+
+  .header-title {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 700;
+    color: #e0e8f0;
+    text-shadow: 0 0 10px rgba(0, 255, 229, 0.3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-tags {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .tag {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .tag-tool {
+    color: #00ffe5;
+    border-color: rgba(0, 255, 229, 0.3);
+    background: rgba(0, 255, 229, 0.08);
+    text-shadow: 0 0 8px rgba(0, 255, 229, 0.4);
+  }
+
+  .tag-terminal {
+    color: #b388ff;
+    border-color: rgba(179, 136, 255, 0.3);
+    background: rgba(179, 136, 255, 0.08);
+    text-shadow: 0 0 8px rgba(179, 136, 255, 0.4);
+  }
+
+  .tag-time {
+    color: #80cbc4;
+    border-color: rgba(128, 203, 196, 0.2);
+    background: rgba(128, 203, 196, 0.06);
+  }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent,
+      rgba(0, 255, 229, 0.2) 10%,
+      rgba(255, 0, 170, 0.15) 50%,
+      rgba(0, 255, 229, 0.2) 90%,
+      transparent
+    );
+    margin: 14px 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .divider::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -2px;
+    width: 6px;
+    height: 6px;
+    background: #00ffe5;
+    border-radius: 50%;
+    transform: translateX(-50%);
+    box-shadow: 0 0 8px #00ffe5;
+    animation: dotPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes dotPulse {
+    0%, 100% { opacity: 0.5; box-shadow: 0 0 4px #00ffe5; }
+    50% { opacity: 1; box-shadow: 0 0 12px #00ffe5; }
+  }
+
+  /* User prompt */
+  .user-prompt {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 12px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .prompt-chevron {
+    color: #00ffe5;
+    font-size: 14px;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(0, 255, 229, 0.6);
+    animation: chevronBlink 1.2s step-end infinite;
+  }
+
+  @keyframes chevronBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .prompt-text {
+    color: #a0aec0;
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  /* AI response */
+  .response {
+    position: relative;
+    z-index: 1;
+    padding: 14px 16px;
+    background: rgba(0, 255, 229, 0.03);
+    border: 1px solid rgba(0, 255, 229, 0.1);
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+
+  .response-text {
+    color: #d0d8e4;
+    font-size: 13px;
+    line-height: 1.7;
+    font-weight: 400;
+  }
+
+  .response-text .highlight {
+    color: #00ffe5;
+    text-shadow: 0 0 6px rgba(0, 255, 229, 0.3);
+  }
+
+  /* Completion badge */
+  .completion-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .completion-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    background: rgba(0, 255, 136, 0.08);
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .completion-badge:hover {
+    background: rgba(0, 255, 136, 0.15);
+    border-color: rgba(0, 255, 136, 0.6);
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.2);
+  }
+
+  .completion-dot {
+    width: 6px;
+    height: 6px;
+    background: #00ff88;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #00ff88;
+    animation: completionPulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes completionPulse {
+    0%, 100% { box-shadow: 0 0 4px #00ff88; }
+    50% { box-shadow: 0 0 12px #00ff88, 0 0 20px rgba(0, 255, 136, 0.3); }
+  }
+
+  .completion-text {
+    color: #00ff88;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    text-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+  }
+
+  /* Pixel art scout (CSS-based) */
+  .pixel-scout {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    width: 32px;
+    height: 32px;
+    gap: 0;
+    filter: drop-shadow(0 0 6px rgba(0, 255, 136, 0.6));
+  }
+
+  .pixel-scout .px {
+    width: 100%;
+    height: 100%;
+  }
+
+  .pixel-scout .px.b { background: #00ff88; }
+  .pixel-scout .px.h { background: rgba(0, 255, 136, 0.55); }
+  .pixel-scout .px.e { background: #0a0a14; }
+  .pixel-scout .px.g { background: #00ff88; filter: brightness(1.5); }
+
+  .pixel-badge {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    width: 24px;
+    height: 24px;
+    gap: 0;
+    filter: drop-shadow(0 0 4px rgba(0, 255, 136, 0.5));
+  }
+
+  .pixel-badge .px.s { background: #fff; }
+
+  /* Bottom status bar */
+  .status-bar {
+    text-align: center;
+    margin-top: 20px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .status-bar a {
+    color: rgba(0, 255, 229, 0.4);
+    font-size: 12px;
+    text-decoration: none;
+    letter-spacing: 0.5px;
+    transition: all 0.2s;
+  }
+
+  .status-bar a:hover {
+    color: rgba(0, 255, 229, 0.8);
+    text-shadow: 0 0 8px rgba(0, 255, 229, 0.3);
+  }
+
+  /* Multiple card variants */
+  .cards-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  /* Running variant */
+  .card.running .card::before,
+  .card-container.running::before {
+    background: linear-gradient(135deg, #6e9fff, #b388ff, #6e9fff);
+  }
+
+  .card-container.approval::before {
+    background: linear-gradient(135deg, #ff9500, #ff00aa, #ff9500);
+  }
+
+  .card-container.question::before {
+    background: linear-gradient(135deg, #ffd600, #ff9500, #ffd600);
+  }
+</style>
+</head>
+<body>
+
+<div class="cards-grid">
+
+  <!-- Completion Card -->
+  <div class="card-container">
+    <div class="card">
+      <div class="header">
+        <!-- Trophy pixel art -->
+        <canvas id="scout-trophy" width="32" height="32" style="image-rendering: pixelated; filter: drop-shadow(0 0 6px rgba(0, 255, 136, 0.6));"></canvas>
+        <!-- Checkmark badge -->
+        <canvas id="badge-check" width="24" height="24" style="image-rendering: pixelated; filter: drop-shadow(0 0 4px rgba(0, 255, 136, 0.5));"></canvas>
+
+        <span class="header-title">open-vibe-island (feat/animated-scout-states)</span>
+
+        <div class="header-tags">
+          <span class="tag tag-tool">Claude Code</span>
+          <span class="tag tag-terminal">VS Code</span>
+          <span class="tag tag-time">&lt;1m</span>
+        </div>
+      </div>
+
+      <div class="user-prompt">
+        <span class="prompt-chevron">&gt;</span>
+        <span class="prompt-text">试试看</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="response">
+        <div class="response-text">
+          点击那个 <span class="highlight">VS Code</span> 的 session 卡片试试，应该只会把已有的 VS Code 窗口带到前台，不会再弹出新窗口了。
+        </div>
+      </div>
+
+      <div class="completion-row">
+        <div class="completion-badge">
+          <div class="completion-dot"></div>
+          <span class="completion-text">COMPLETE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Running Card -->
+  <div class="card-container" style="--glow: #6e9fff;">
+    <div class="card" style="border-color: rgba(110, 159, 255, 0.3);">
+      <div class="header">
+        <canvas id="scout-ghost" width="32" height="32" style="image-rendering: pixelated; filter: drop-shadow(0 0 6px rgba(110, 159, 255, 0.6));"></canvas>
+        <canvas id="badge-lightning" width="24" height="24" style="image-rendering: pixelated; filter: drop-shadow(0 0 4px rgba(165, 120, 255, 0.6));"></canvas>
+
+        <span class="header-title">earn-ai-tools &middot; 全部做吧</span>
+
+        <div class="header-tags">
+          <span class="tag tag-tool">Claude Code</span>
+          <span class="tag" style="color: #b388ff; border-color: rgba(179,136,255,0.3); background: rgba(179,136,255,0.08);">IntelliJ IDEA</span>
+          <span class="tag tag-time">7m</span>
+        </div>
+      </div>
+
+      <div class="user-prompt">
+        <span class="prompt-chevron" style="color: #6e9fff; text-shadow: 0 0 10px rgba(110,159,255,0.6);">&gt;</span>
+        <span class="prompt-text">全部做吧</span>
+      </div>
+
+      <div class="divider" style="background: linear-gradient(90deg, transparent, rgba(110,159,255,0.2) 10%, rgba(179,136,255,0.15) 50%, rgba(110,159,255,0.2) 90%, transparent);"></div>
+
+      <div class="response" style="border-color: rgba(110,159,255,0.1); background: rgba(110,159,255,0.03);">
+        <div class="response-text">
+          <span style="color: #b388ff; text-shadow: 0 0 6px rgba(179,136,255,0.3);">Bash</span> swift build -c release --product OpenIslandApp
+        </div>
+      </div>
+
+      <div class="completion-row">
+        <div class="completion-badge" style="background: rgba(110,159,255,0.08); border-color: rgba(110,159,255,0.3);">
+          <div class="completion-dot" style="background: #6e9fff; box-shadow: 0 0 8px #6e9fff; animation: none;"></div>
+          <span class="completion-text" style="color: #6e9fff; text-shadow: 0 0 8px rgba(110,159,255,0.5);">RUNNING</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Approval Card -->
+  <div class="card-container approval">
+    <div class="card" style="border-color: rgba(255, 149, 0, 0.3);">
+      <div class="header">
+        <canvas id="scout-shield" width="32" height="32" style="image-rendering: pixelated; filter: drop-shadow(0 0 6px rgba(255, 149, 0, 0.6));"></canvas>
+        <canvas id="badge-exclaim" width="24" height="24" style="image-rendering: pixelated; filter: drop-shadow(0 0 4px rgba(255, 149, 0, 0.6));"></canvas>
+
+        <span class="header-title">indicator &middot; 排查 eureka 问题</span>
+
+        <div class="header-tags">
+          <span class="tag tag-tool">Claude Code</span>
+          <span class="tag" style="color: #ff9500; border-color: rgba(255,149,0,0.3); background: rgba(255,149,0,0.08);">Ghostty</span>
+          <span class="tag tag-time">2m</span>
+        </div>
+      </div>
+
+      <div class="user-prompt">
+        <span class="prompt-chevron" style="color: #ff9500; text-shadow: 0 0 10px rgba(255,149,0,0.6);">&gt;</span>
+        <span class="prompt-text">帮我排查下这个接口</span>
+      </div>
+
+      <div class="divider" style="background: linear-gradient(90deg, transparent, rgba(255,149,0,0.2) 10%, rgba(255,0,170,0.15) 50%, rgba(255,149,0,0.2) 90%, transparent);"></div>
+
+      <div class="response" style="border-color: rgba(255,149,0,0.15); background: rgba(255,149,0,0.03);">
+        <div class="response-text">
+          Allow <span style="color: #ff9500; text-shadow: 0 0 6px rgba(255,149,0,0.3);">Bash</span>: curl -s 'http://localhost:9320/v1/private/...'
+        </div>
+      </div>
+
+      <div class="completion-row" style="gap: 10px;">
+        <div class="completion-badge" style="background: rgba(255,80,80,0.08); border-color: rgba(255,80,80,0.3); cursor: pointer;">
+          <span class="completion-text" style="color: #ff5050; text-shadow: 0 0 8px rgba(255,80,80,0.5);">DENY</span>
+        </div>
+        <div class="completion-badge" style="background: rgba(255,149,0,0.08); border-color: rgba(255,149,0,0.3); cursor: pointer;">
+          <div class="completion-dot" style="background: #ff9500; box-shadow: 0 0 8px #ff9500;"></div>
+          <span class="completion-text" style="color: #ff9500; text-shadow: 0 0 8px rgba(255,149,0,0.5);">APPROVE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Draw pixel art on canvases
+function drawPixels(canvasId, pattern, colorMap, cellSize) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const size = cellSize || canvas.width / 8;
+
+  pattern.forEach((row, y) => {
+    [...row].forEach((ch, x) => {
+      if (ch !== '.' && colorMap[ch]) {
+        ctx.fillStyle = colorMap[ch];
+        ctx.fillRect(x * size, y * size, size, size);
+      }
+    });
+  });
+}
+
+const trophyColors = { B: '#00cc6a', G: '#00ff88', H: '#00ff88' };
+const trophyPattern = [
+  '...BB...',
+  '..BGBB..',
+  '.BGGGGB.',
+  'BBGGGGBB',
+  '.BBGGBB.',
+  '..BBBB..',
+  '..B..B..',
+  '.BB..BB.',
+];
+drawPixels('scout-trophy', trophyPattern, trophyColors, 4);
+
+const checkColors = { B: '#ffffff' };
+const checkPattern = [
+  '........',
+  '.......B',
+  '......B.',
+  '.....B..',
+  '.B..B...',
+  '..BB....',
+  '...B....',
+  '........',
+];
+drawPixels('badge-check', checkPattern, checkColors, 3);
+
+// Ghost (command)
+const ghostColors = { B: '#8b6fff', H: '#b8a0ff', E: '#0a0a14' };
+const ghostPattern = [
+  '..BBBB..',
+  '.BBBBBB.',
+  'BBHEHEBB',
+  'BBHHHHBB',
+  'BBBBBBBB',
+  'BBBBBBBB',
+  'B.B..B.B',
+  '........',
+];
+drawPixels('scout-ghost', ghostPattern, ghostColors, 4);
+
+const lightningColors = { B: '#b388ff' };
+const lightningPattern = [
+  '....BB..',
+  '...BB...',
+  '..BB....',
+  '.BBBB...',
+  '...BB...',
+  '..BB....',
+  '.BB.....',
+  '........',
+];
+drawPixels('badge-lightning', lightningPattern, lightningColors, 3);
+
+// Shield (approval)
+const shieldColors = { B: '#ff9500', H: '#ffb84d', E: '#0a0a14' };
+const shieldPattern = [
+  '..BBBB..',
+  '.BBBBBB.',
+  'BBHEEHBB',
+  'BBHHHBBB',
+  '.BBBBBB.',
+  '..BBBB..',
+  '...BB...',
+  '........',
+];
+drawPixels('scout-shield', shieldPattern, shieldColors, 4);
+
+const exclaimColors = { B: '#ff9500' };
+const exclaimPattern = [
+  '...B....',
+  '...B....',
+  '...B....',
+  '...B....',
+  '...B....',
+  '........',
+  '...B....',
+  '........',
+];
+drawPixels('badge-exclaim', exclaimPattern, exclaimColors, 3);
+</script>
+
+</body>
+</html>

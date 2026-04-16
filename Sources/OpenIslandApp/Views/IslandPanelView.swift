@@ -154,19 +154,97 @@ struct IslandPanelView: View {
         return session.phase == .running || session.phase.requiresAttention
     }
 
-    /// Scout icon tint: blue if any running, green if any live, else gray.
+    /// Map the spotlight session's phase + current tool to the pixel scout phase.
+    private var closedScoutPhase: OpenIslandBrandMark.ScoutPhase {
+        guard let session = closedSpotlightSession else {
+            return .idle
+        }
+        switch session.phase {
+        case .running:
+            return Self.scoutPhaseForRunning(toolName: session.currentToolName)
+        case .waitingForApproval:
+            return .waitingForApproval
+        case .waitingForAnswer:
+            return .waitingForAnswer
+        case .completed:
+            return .completed
+        }
+    }
+
+    /// Short tool label shown next to the scout icon in the closed notch.
+    private var closedToolLabel: String? {
+        guard let session = closedSpotlightSession,
+              session.phase == .running,
+              let toolName = session.currentToolName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !toolName.isEmpty else {
+            return nil
+        }
+        return Self.displayToolName(toolName)
+    }
+
+    private static let codingTools: Set<String> = [
+        "read", "edit", "write", "grep", "glob", "notebookedit", "lsp",
+    ]
+
+    private static let commandTools: Set<String> = [
+        "bash", "exec_command",
+    ]
+
+    private static let searchTools: Set<String> = [
+        "websearch", "webfetch", "agent",
+    ]
+
+    fileprivate static func scoutPhaseForRunning(toolName: String?) -> OpenIslandBrandMark.ScoutPhase {
+        guard let tool = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !tool.isEmpty else {
+            return .thinking
+        }
+        if tool == "__compacting__" { return .compacting }
+        if codingTools.contains(tool) { return .coding }
+        if commandTools.contains(tool) { return .runningCommand }
+        if searchTools.contains(tool) { return .searching }
+        return .thinking
+    }
+
+    private static func displayToolName(_ toolName: String) -> String {
+        switch toolName.lowercased() {
+        case "exec_command":    return "Bash"
+        case "bash":            return "Bash"
+        case "read":            return "Read"
+        case "edit":            return "Edit"
+        case "write":           return "Write"
+        case "grep":            return "Grep"
+        case "glob":            return "Glob"
+        case "notebookedit":    return "Notebook"
+        case "lsp":             return "LSP"
+        case "websearch":       return "Search"
+        case "webfetch":        return "Fetch"
+        case "agent":           return "Agent"
+        case "__compacting__":  return "Compact"
+        default:                return toolName
+        }
+    }
+
+    /// Scout icon tint: color-coded per scout phase.
     private var scoutTint: Color {
         if model.isCustomAppearance, let phase = closedSpotlightSession?.phase {
             return model.statusColor(for: phase)
         }
-        let sessions = model.surfacedSessions
-        if sessions.contains(where: { $0.phase == .running }) {
-            return Color(red: 0.43, green: 0.62, blue: 1.0) // #6E9FFF working blue
+        return Self.scoutPhaseTint(closedScoutPhase)
+    }
+
+    fileprivate static func scoutPhaseTint(_ phase: OpenIslandBrandMark.ScoutPhase) -> Color {
+        switch phase {
+        case .idle:                 return .mint.opacity(0.6)
+        case .thinking:             return Color(red: 0.43, green: 0.62, blue: 1.0)      // 蓝色
+        case .coding:               return Color(red: 0.0, green: 0.8, blue: 0.85)       // 青色
+        case .runningCommand:       return Color(red: 0.65, green: 0.45, blue: 1.0)      // 紫色
+        case .searching:            return Color(red: 0.3, green: 0.5, blue: 0.95)       // 靛蓝
+        case .waitingForApproval:   return .orange
+        case .waitingForAnswer:     return .yellow
+        case .completed:            return .green
+        case .compacting:           return Color(red: 0.85, green: 0.55, blue: 0.2)      // 琥珀色
         }
-        if !sessions.isEmpty {
-            return Color(red: 0.26, green: 0.91, blue: 0.42) // #42E86B idle green
-        }
-        return Color.white.opacity(0.4) // gray
     }
 
     private var countBadgeWidth: CGFloat {
@@ -178,9 +256,23 @@ struct IslandPanelView: View {
         guard !showsIdleEdgeWhenCollapsed else { return 0 }
         guard hasClosedPresence else { return 0 }
         let hasPending = closedSpotlightSession?.phase.requiresAttention == true
-        let leftWidth = sideWidth + 8 + (hasPending ? 18 : 0)
+        let phase = closedScoutPhase
+        // Left: scout(14) + iconSpacing(2) + badge(14)
+        var leftWidth: CGFloat = 14 + 2 + 14
+        // Compact spinner
+        if phase == .compacting {
+            leftWidth += 2 + 12  // spacing + spinner
+        }
+        // Tool label text (e.g. "Edit", "Bash", "Compact")
+        if let label = closedToolLabel {
+            let estimatedTextWidth = CGFloat(label.count) * 6.5
+            leftWidth += 4 + max(36, estimatedTextWidth)
+        }
+        if hasPending {
+            leftWidth += 18  // attention indicator
+        }
         let rightWidth = max(sideWidth, countBadgeWidth) + (hasPending ? 18 : 0)
-        return leftWidth + rightWidth + 16 + (hasPending ? 6 : 0)
+        return leftWidth + rightWidth + 24 + (hasPending ? 6 : 0)
     }
 
     /// Composite key combining `hasClosedPresence` and `expansionWidth` so a
@@ -247,7 +339,7 @@ struct IslandPanelView: View {
 
         let currentWidth = usesOpenedVisualState ? openedWidth : closedTotalWidth
         let currentHeight = usesOpenedVisualState ? openedHeight : closedTotalHeight
-        let horizontalInset = usesOpenedVisualState ? 14.0 : 0.0
+        let horizontalInset = usesOpenedVisualState ? 14.0 : 14.0
         let bottomInset = usesOpenedVisualState ? 14.0 : 0.0
         let surfaceWidth = currentWidth + (horizontalInset * 2)
         let surfaceHeight = currentHeight + bottomInset
@@ -278,7 +370,7 @@ struct IslandPanelView: View {
                 .frame(width: currentWidth, height: currentHeight, alignment: .top)
                 .padding(.horizontal, horizontalInset)
                 .padding(.bottom, bottomInset)
-                .clipShape(surfaceShape)
+                .clipShape(usesOpenedVisualState ? AnyShape(surfaceShape) : AnyShape(Rectangle()))
                 .overlay(alignment: .top) {
                     // Black strip to blend with physical notch at the very top
                     Rectangle()
@@ -352,28 +444,34 @@ struct IslandPanelView: View {
                             )
                             .matchedGeometryEffect(id: "island-icon", in: notchNamespace, isSource: true)
                         } else {
-                            OpenIslandIcon(size: 14, isAnimating: hasClosedActivity, tint: scoutTint)
+                            OpenIslandIcon(size: 14, isAnimating: hasClosedActivity, tint: scoutTint, scoutPhase: closedScoutPhase)
                                 .matchedGeometryEffect(id: "island-icon", in: notchNamespace, isSource: true)
                         }
 
-                        if closedSpotlightSession?.phase.requiresAttention == true {
+                        if let toolLabel = closedToolLabel {
+                            Text(toolLabel)
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(scoutTint.opacity(0.8))
+                                .lineLimit(1)
+                                .transition(.opacity)
+                        }
+
+                        if closedSpotlightSession?.phase.requiresAttention == true, model.isCustomAppearance {
                             AttentionIndicator(
                                 size: 14,
                                 color: phaseColor(closedSpotlightSession?.phase ?? .running)
                             )
                         }
                     }
-                    .frame(width: sideWidth + 8 + (closedSpotlightSession?.phase.requiresAttention == true ? 18 : 0))
+                    .fixedSize()
                 }
 
                 if !hasClosedPresence {
-                    Rectangle()
-                        .fill(Color.clear)
-                        .frame(width: closedNotchWidth - 20)
+                    Spacer()
+                        .frame(minWidth: closedNotchWidth - 20)
                 } else {
-                    Rectangle()
-                        .fill(Color.black)
-                        .frame(width: closedNotchWidth - NotchShape.closedTopRadius + (isPopping ? 18 : 0))
+                    Spacer()
+                        .frame(minWidth: 20)
                 }
 
                 if hasClosedPresence {
@@ -399,8 +497,13 @@ struct IslandPanelView: View {
                 let metrics = openedHeaderMetrics(for: geometry.size.width)
 
                 HStack(spacing: 0) {
-                    usageLaneView(providerGroups.left, alignment: .leading)
-                        .frame(width: metrics.leftUsageWidth, alignment: .leading)
+                    if providerGroups.left.isEmpty {
+                        openedSessionSummary
+                            .frame(width: metrics.leftUsageWidth, alignment: .leading)
+                    } else {
+                        usageLaneView(providerGroups.left, alignment: .leading)
+                            .frame(width: metrics.leftUsageWidth, alignment: .leading)
+                    }
 
                     Color.clear
                         .frame(width: metrics.centerGapWidth)
@@ -538,8 +641,6 @@ struct IslandPanelView: View {
                     }
             } else {
                 // List mode: scroll when content exceeds the panel's available space.
-                // The parent frame constraint (currentHeight - closedNotchHeight - 12)
-                // determines the viewport; ScrollView handles overflow naturally.
                 ScrollView(.vertical) {
                     sessionListContent(context: context)
                 }
@@ -618,6 +719,36 @@ struct IslandPanelView: View {
         case .waitingForAnswer: .yellow
         case .completed: .blue
         }
+    }
+
+    @ViewBuilder
+    /// Left-side session status summary shown when no usage providers are available.
+    private var openedSessionSummary: some View {
+        let active = model.allSessions.filter { $0.phase == .running || $0.phase.requiresAttention }.count
+        let total = model.allSessions.count
+
+        return HStack(spacing: 6) {
+            OpenIslandBrandMark(
+                size: 12,
+                tint: active > 0 ? .mint : .white.opacity(0.5),
+                isAnimating: active > 0,
+                phase: active > 0 ? .thinking : .idle,
+                style: .duotone
+            )
+
+            HStack(spacing: 0) {
+                Text("\(total)")
+                    .foregroundStyle(.white.opacity(0.8))
+                Text(" sessions · ")
+                    .foregroundStyle(.white.opacity(0.35))
+                Text("\(active)")
+                    .foregroundStyle(active > 0 ? .mint : .white.opacity(0.5))
+                Text(" active")
+                    .foregroundStyle(active > 0 ? .mint.opacity(0.7) : .white.opacity(0.35))
+            }
+            .font(.system(size: 10.5, weight: .medium))
+        }
+        .lineLimit(1)
     }
 
     @ViewBuilder
@@ -1065,20 +1196,24 @@ private struct IslandSessionRow: View {
                         }
                     }
 
-                    if showsExpandedContent || isActionable,
-                       let promptLine = session.spotlightPromptLineText ?? expandedPromptLineText {
-                        Text(promptLine)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.62))
-                            .lineLimit(1)
-                    }
+                    // Hide prompt/activity lines when the completion card
+                    // is visible — it already shows the same content.
+                    if !isActionable {
+                        if showsExpandedContent,
+                           let promptLine = session.spotlightPromptLineText ?? expandedPromptLineText {
+                            Text(promptLine)
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.62))
+                                .lineLimit(1)
+                        }
 
-                    if showsExpandedContent || isActionable,
-                       let activityLine = session.spotlightActivityLineText ?? expandedActivityLineText {
-                        Text(activityLine)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(activityColor(for: presence).opacity(0.94))
-                            .lineLimit(1)
+                        if showsExpandedContent,
+                           let activityLine = session.spotlightActivityLineText ?? expandedActivityLineText {
+                            Text(activityLine)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(activityColor(for: presence).opacity(0.94))
+                                .lineLimit(1)
+                        }
                     }
 
                     if showsExpandedContent,
@@ -1168,7 +1303,11 @@ private struct IslandSessionRow: View {
                 .strokeBorder(actionableBorderColor)
         )
         .compositingGroup()
-        .shadow(color: .black.opacity(0.24), radius: isHighlighted ? 8 : 0, y: isHighlighted ? 6 : 0)
+        .shadow(
+            color: isActionable ? actionableStatusTint.opacity(0.15) : .black.opacity(0.24),
+            radius: isActionable ? 12 : (isHighlighted ? 8 : 0),
+            y: isHighlighted ? 6 : 0
+        )
         .overlay(
             Group {
                 if !isActionable {
@@ -1298,28 +1437,65 @@ private struct IslandSessionRow: View {
         )
     }
 
-    // MARK: - Completion action area
+    // MARK: - Completion action area (cyberpunk style)
 
     private var completionActionBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
+            // Terminal-style prompt line
+            HStack(alignment: .top, spacing: 8) {
+                Text(">")
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundStyle(actionableStatusTint)
+                    .shadow(color: actionableStatusTint.opacity(0.6), radius: 4)
+
                 Text(completionPromptLabel)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.75))
                     .lineLimit(2)
 
                 Spacer(minLength: 8)
 
-                Text(lang.t("completion.done"))
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color(red: 0.29, green: 0.86, blue: 0.46).opacity(0.96))
+                // Neon status badge
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(actionableStatusTint)
+                        .frame(width: 5, height: 5)
+                        .shadow(color: actionableStatusTint.opacity(0.8), radius: 4)
+
+                    Text(lang.t("completion.done").uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(actionableStatusTint)
+                        .shadow(color: actionableStatusTint.opacity(0.5), radius: 3)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(actionableStatusTint.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(actionableStatusTint.opacity(0.25))
+                )
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
-            Rectangle()
-                .fill(.white.opacity(0.04))
-                .frame(height: 1)
+            // Circuit-line divider
+            ZStack {
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [.clear, actionableStatusTint.opacity(0.2), actionableStatusTint.opacity(0.1), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(height: 1)
+
+                Circle()
+                    .fill(actionableStatusTint.opacity(0.6))
+                    .frame(width: 4, height: 4)
+                    .shadow(color: actionableStatusTint.opacity(0.5), radius: 3)
+            }
 
             AutoHeightScrollView(maxHeight: 260) {
                 Markdown(completionMessageText)
@@ -1330,8 +1506,15 @@ private struct IslandSessionRow: View {
             }
 
             if onReply != nil {
+                // Circuit-line divider for reply area
                 Rectangle()
-                    .fill(.white.opacity(0.04))
+                    .fill(
+                        LinearGradient(
+                            colors: [.clear, actionableStatusTint.opacity(0.15), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
                     .frame(height: 1)
 
                 completionReplyInput
@@ -1339,11 +1522,17 @@ private struct IslandSessionRow: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.045))
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.04, green: 0.04, blue: 0.08), Color(red: 0.05, green: 0.05, blue: 0.1)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
+                .strokeBorder(actionableStatusTint.opacity(0.2))
         )
     }
 
@@ -1450,10 +1639,44 @@ private struct IslandSessionRow: View {
     }
 
     private func statusDot(for presence: IslandSessionPresence) -> some View {
-        Circle()
-            .fill(statusTint(for: presence))
-            .frame(width: 9, height: 9)
-            .padding(.top, 6)
+        let rowScoutPhase = rowScoutPhase(for: presence)
+        let tint = IslandPanelView.scoutPhaseTint(rowScoutPhase)
+        return HStack(spacing: 1) {
+            OpenIslandBrandMark(
+                size: 16,
+                tint: tint,
+                isAnimating: rowScoutPhase.isAnimated,
+                phase: rowScoutPhase,
+                style: .duotone
+            )
+            .frame(width: 16, height: 16)
+            ScoutBadgeView(
+                size: 14,
+                phase: rowScoutPhase,
+                tint: tint
+            )
+            .frame(width: 14, height: 14)
+            if rowScoutPhase == .compacting {
+                CompactSpinner(size: 12, tint: tint)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private func rowScoutPhase(for presence: IslandSessionPresence) -> OpenIslandBrandMark.ScoutPhase {
+        switch session.phase {
+        case .running:
+            return IslandPanelView.scoutPhaseForRunning(toolName: session.currentToolName)
+        case .waitingForApproval:
+            return .waitingForApproval
+        case .waitingForAnswer:
+            return .waitingForAnswer
+        case .completed:
+            if presence == .inactive {
+                return .idle
+            }
+            return .completed
+        }
     }
 
     /// Prompt line for manually expanded inactive rows (bypasses time-based filter).
@@ -1823,14 +2046,47 @@ private struct OpenIslandIcon: View {
     let size: CGFloat
     var isAnimating: Bool = false
     var tint: Color = .mint
+    var scoutPhase: OpenIslandBrandMark.ScoutPhase = .idle
 
     var body: some View {
-        OpenIslandBrandMark(
-            size: size,
-            tint: tint,
-            isAnimating: isAnimating,
-            style: .duotone
-        )
+        HStack(spacing: size * 0.15) {
+            OpenIslandBrandMark(
+                size: size,
+                tint: tint,
+                isAnimating: isAnimating,
+                phase: scoutPhase,
+                style: .duotone
+            )
+            ScoutBadgeView(
+                size: size,
+                phase: scoutPhase,
+                tint: tint
+            )
+            if scoutPhase == .compacting {
+                CompactSpinner(size: size * 0.8, tint: tint)
+            }
+        }
+    }
+}
+
+// MARK: - Spinning loading indicator
+
+struct CompactSpinner: View {
+    let size: CGFloat
+    var tint: Color = .white
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.7)
+            .stroke(tint, style: StrokeStyle(lineWidth: max(1, size * 0.15), lineCap: .round))
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(rotation))
+            .onAppear {
+                withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            }
     }
 }
 
@@ -1882,11 +2138,9 @@ struct MenuBarContentView: View {
                 model.showSettings()
             }
 
-            #if DEBUG
             Button(model.lang.t("menu.openDebug")) {
                 model.showControlCenter()
             }
-            #endif
 
             Text(model.acceptanceStatusTitle)
                 .font(.subheadline.weight(.semibold))

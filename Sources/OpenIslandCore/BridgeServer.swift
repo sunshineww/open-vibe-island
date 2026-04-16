@@ -905,6 +905,18 @@ public final class BridgeServer: @unchecked Sendable {
                     )
                 )
             )
+            // Mark compacting state so the scout icon can show a distinct phase.
+            emit(
+                .claudeSessionMetadataUpdated(
+                    ClaudeSessionMetadataUpdated(
+                        sessionID: payload.sessionID,
+                        claudeMetadata: ClaudeSessionMetadata(
+                            currentTool: "__compacting__"
+                        ),
+                        timestamp: .now
+                    )
+                )
+            )
             send(.response(.acknowledged), to: clientID)
 
         case .sessionEnd:

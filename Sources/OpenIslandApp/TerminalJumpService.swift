@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 import OpenIslandCore
 
@@ -8,6 +9,7 @@ struct TerminalJumpService {
     typealias OpenAction = @Sendable ([String]) throws -> Void
     typealias AppleScriptRunner = @Sendable (String) throws -> String
     typealias ProcessRunner = @Sendable (String, [String]) -> Bool
+    typealias IDEWindowFocuser = @Sendable (String, JumpTarget) -> Bool
     typealias WarpFocusedPaneReader = @Sendable () -> String?
     typealias WarpTabCountReader = @Sendable () -> Int
     /// Returns true when Warp is the system's frontmost app and ready to
@@ -206,6 +208,7 @@ struct TerminalJumpService {
     private let openAction: OpenAction
     private let appleScriptRunner: AppleScriptRunner
     private let processRunner: ProcessRunner
+    private let ideWindowFocuser: IDEWindowFocuser
     private let warpFocusedPaneReader: WarpFocusedPaneReader
     private let warpTabCountReader: WarpTabCountReader
     private let warpKeystroker: KeystrokeInjector
@@ -221,6 +224,7 @@ struct TerminalJumpService {
         openAction: @escaping OpenAction = Self.defaultOpenAction(arguments:),
         appleScriptRunner: @escaping AppleScriptRunner = Self.defaultAppleScriptRunner(script:),
         processRunner: @escaping ProcessRunner = Self.defaultProcessRunner(executable:arguments:),
+        ideWindowFocuser: @escaping IDEWindowFocuser = Self.defaultIDEWindowFocuser(bundleIdentifier:target:),
         warpFocusedPaneReader: @escaping WarpFocusedPaneReader = { WarpSQLiteReader().currentFocusedPaneUUID() },
         warpTabCountReader: @escaping WarpTabCountReader = { WarpSQLiteReader().tabCountInActiveWindow() },
         warpKeystroker: KeystrokeInjector = DefaultKeystrokeInjector(),
@@ -237,6 +241,7 @@ struct TerminalJumpService {
         self.openAction = openAction
         self.appleScriptRunner = appleScriptRunner
         self.processRunner = processRunner
+        self.ideWindowFocuser = ideWindowFocuser
         self.warpFocusedPaneReader = warpFocusedPaneReader
         self.warpTabCountReader = warpTabCountReader
         self.warpKeystroker = warpKeystroker
@@ -353,17 +358,28 @@ struct TerminalJumpService {
                     return "Focused the matching \(descriptor.displayName) pane."
                 }
             case let id where Self.vscodeFamilyBundleIDs.contains(id):
-                if let workingDirectory = target.workingDirectory {
-                    let opened = jumpToVSCodeFamilyWorkspace(workingDirectory, bundleIdentifier: id)
-                    if opened {
-                        return "Focused the matching \(descriptor.displayName) workspace."
-                    }
-                }
                 if appIsRunning {
+                    // AX window focus — match by project name in title.
+                    if ideWindowFocuser(id, target) {
+                        return "Focused the matching \(descriptor.displayName) window."
+                    }
+                    // AX failed (no permission or no match) — just activate
+                    // the app. Do NOT use `code -r` which would replace the
+                    // current workspace (especially bad for worktree paths).
                     try openAction(["-b", id])
                     return "Activated \(descriptor.displayName)."
                 }
+                // App not running — open the workspace via CLI.
+                if let workingDirectory = target.workingDirectory {
+                    let opened = jumpToVSCodeFamilyWorkspace(workingDirectory, bundleIdentifier: id)
+                    if opened {
+                        return "Opened \(descriptor.displayName) with workspace."
+                    }
+                }
             case let id where Self.jetbrainsBundleIDs.contains(id):
+                if appIsRunning, ideWindowFocuser(id, target) {
+                    return "Focused the matching \(descriptor.displayName) window."
+                }
                 if let workingDirectory = target.workingDirectory {
                     let opened = jumpToJetBrainsProject(workingDirectory, bundleIdentifier: id)
                     if opened {
@@ -1272,6 +1288,70 @@ struct TerminalJumpService {
         } catch {
             return false
         }
+    }
+
+    // MARK: - AX-based IDE window focuser (VS Code family + JetBrains)
+
+    private static func defaultIDEWindowFocuser(bundleIdentifier: String, target: JumpTarget) -> Bool {
+        let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        guard !runningApps.isEmpty else { return false }
+
+        var bestMatch: (app: NSRunningApplication, window: AXUIElement, score: Int)?
+        for app in runningApps {
+            let axApp = AXUIElementCreateApplication(app.processIdentifier)
+            var windowsRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+                  let windows = windowsRef as? [AXUIElement] else { continue }
+
+            for window in windows {
+                let score = ideWindowScore(for: window, target: target)
+                guard score > 0 else { continue }
+                if let current = bestMatch, current.score >= score { continue }
+                bestMatch = (app, window, score)
+            }
+        }
+
+        guard let bestMatch else { return false }
+
+        _ = bestMatch.app.activate(options: [.activateIgnoringOtherApps])
+        _ = AXUIElementPerformAction(bestMatch.window, kAXRaiseAction as CFString)
+        return true
+    }
+
+    private static func ideWindowScore(for window: AXUIElement, target: JumpTarget) -> Int {
+        // Skip non-standard windows (floating panels, etc.)
+        var subroleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subroleRef) == .success,
+           let subrole = subroleRef as? String,
+           subrole != kAXStandardWindowSubrole as String {
+            return 0
+        }
+
+        var titleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
+        let title = (titleRef as? String)?.lowercased()
+
+        var score = 0
+
+        // Match by project directory name in window title
+        if let workingDirectory = target.workingDirectory {
+            let projectName = URL(fileURLWithPath: workingDirectory).lastPathComponent.lowercased()
+            if !projectName.isEmpty, title?.contains(projectName) == true {
+                score += 400 + projectName.count
+            }
+        }
+
+        // Match by workspace name
+        let workspaceName = target.workspaceName.lowercased()
+        if !workspaceName.isEmpty {
+            if title == workspaceName {
+                score += 800
+            } else if title?.contains(workspaceName) == true {
+                score += 300 + workspaceName.count
+            }
+        }
+
+        return score
     }
 
     private func escapeAppleScript(_ value: String?) -> String {

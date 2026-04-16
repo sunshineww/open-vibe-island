@@ -15,6 +15,7 @@ struct IslandDebugSnapshot {
 
 enum IslandDebugScenario: String, CaseIterable, Identifiable {
     case closed
+    case scoutStates
     case sessionList
     case approvalCard
     case questionCard
@@ -27,6 +28,8 @@ enum IslandDebugScenario: String, CaseIterable, Identifiable {
         switch self {
         case .closed:
             "Closed Notch"
+        case .scoutStates:
+            "Scout States"
         case .sessionList:
             "Session List"
         case .approvalCard:
@@ -44,6 +47,8 @@ enum IslandDebugScenario: String, CaseIterable, Identifiable {
         switch self {
         case .closed:
             "Collapsed idle/running notch with live count and attention affordance."
+        case .scoutStates:
+            "All 8 scout icon states: thinking, coding, command, search, approval, answer, completed."
         case .sessionList:
             "Manual expanded list with running, active, and inactive session rows."
         case .approvalCard:
@@ -67,6 +72,19 @@ enum IslandDebugScenario: String, CaseIterable, Identifiable {
                 previewHeight: 78,
                 notchStatus: .closed,
                 notchOpenReason: nil,
+                islandSurface: .sessionList(),
+                sessions: sessions,
+                selectedSessionID: sessions.first?.id
+            )
+
+        case .scoutStates:
+            let sessions = DebugSessionFactory.scoutStateSessions(now: now)
+            return IslandDebugSnapshot(
+                title: title,
+                summary: summary,
+                previewHeight: 500,
+                notchStatus: .opened,
+                notchOpenReason: .click,
                 islandSurface: .sessionList(),
                 sessions: sessions,
                 selectedSessionID: sessions.first?.id
@@ -141,6 +159,136 @@ enum IslandDebugScenario: String, CaseIterable, Identifiable {
 }
 
 private enum DebugSessionFactory {
+    // MARK: - Scout state demo sessions (all 8 states)
+
+    static func scoutStateSessions(now: Date) -> [AgentSession] {
+        [
+            // 1. Thinking — running, no tool
+            AgentSession(
+                id: "scout-thinking",
+                title: "Claude · thinking-demo",
+                tool: .claudeCode,
+                origin: .demo,
+                attachmentState: .attached,
+                phase: .running,
+                summary: "Analyzing codebase structure...",
+                updatedAt: now.addingTimeInterval(-10),
+                jumpTarget: JumpTarget(terminalApp: "Ghostty", workspaceName: "thinking-demo", paneTitle: "thinking"),
+                claudeMetadata: ClaudeSessionMetadata(
+                    lastAssistantMessage: "Let me think about the best approach..."
+                )
+            ),
+            // 2. Coding — running, tool=Edit
+            AgentSession(
+                id: "scout-coding",
+                title: "Claude · coding-demo",
+                tool: .claudeCode,
+                origin: .demo,
+                attachmentState: .attached,
+                phase: .running,
+                summary: "Editing OpenIslandBrandMark.swift",
+                updatedAt: now.addingTimeInterval(-15),
+                jumpTarget: JumpTarget(terminalApp: "Ghostty", workspaceName: "coding-demo", paneTitle: "coding"),
+                claudeMetadata: ClaudeSessionMetadata(
+                    lastAssistantMessage: "Updating the pixel patterns...",
+                    currentTool: "Edit",
+                    currentToolInputPreview: "OpenIslandBrandMark.swift"
+                )
+            ),
+            // 3. Running Command — running, tool=Bash
+            AgentSession(
+                id: "scout-command",
+                title: "Claude · command-demo",
+                tool: .claudeCode,
+                origin: .demo,
+                attachmentState: .attached,
+                phase: .running,
+                summary: "swift build -c release",
+                updatedAt: now.addingTimeInterval(-20),
+                jumpTarget: JumpTarget(terminalApp: "Ghostty", workspaceName: "command-demo", paneTitle: "command"),
+                claudeMetadata: ClaudeSessionMetadata(
+                    lastAssistantMessage: "Building the project...",
+                    currentTool: "Bash",
+                    currentToolInputPreview: "swift build -c release"
+                )
+            ),
+            // 4. Searching — running, tool=WebSearch
+            AgentSession(
+                id: "scout-search",
+                title: "Claude · search-demo",
+                tool: .claudeCode,
+                origin: .demo,
+                attachmentState: .attached,
+                phase: .running,
+                summary: "Searching for SwiftUI animation patterns",
+                updatedAt: now.addingTimeInterval(-25),
+                jumpTarget: JumpTarget(terminalApp: "Ghostty", workspaceName: "search-demo", paneTitle: "search"),
+                claudeMetadata: ClaudeSessionMetadata(
+                    lastAssistantMessage: "Looking up animation best practices...",
+                    currentTool: "WebSearch",
+                    currentToolInputPreview: "SwiftUI pixel animation"
+                )
+            ),
+            // 5. Waiting for Approval
+            AgentSession(
+                id: "scout-approval",
+                title: "Claude · approval-demo",
+                tool: .claudeCode,
+                origin: .demo,
+                attachmentState: .attached,
+                phase: .waitingForApproval,
+                summary: "Allow Bash: rm -rf .build/",
+                updatedAt: now.addingTimeInterval(-30),
+                permissionRequest: PermissionRequest(
+                    title: "Approve command",
+                    summary: "Allow Bash: rm -rf .build/",
+                    affectedPath: ".build/",
+                    primaryActionTitle: "Allow",
+                    secondaryActionTitle: "Deny"
+                ),
+                jumpTarget: JumpTarget(terminalApp: "Ghostty", workspaceName: "approval-demo", paneTitle: "approval"),
+                claudeMetadata: ClaudeSessionMetadata(
+                    lastAssistantMessage: "Need permission to clean build directory.",
+                    currentTool: "Bash"
+                )
+            ),
+            // 6. Waiting for Answer
+            AgentSession(
+                id: "scout-answer",
+                title: "Claude · answer-demo",
+                tool: .claudeCode,
+                origin: .demo,
+                attachmentState: .attached,
+                phase: .waitingForAnswer,
+                summary: "Which animation style do you prefer?",
+                updatedAt: now.addingTimeInterval(-35),
+                questionPrompt: QuestionPrompt(
+                    title: "Which animation style?",
+                    options: ["Breathing", "Bouncing", "Frame toggle"]
+                ),
+                jumpTarget: JumpTarget(terminalApp: "Ghostty", workspaceName: "answer-demo", paneTitle: "answer"),
+                claudeMetadata: ClaudeSessionMetadata(
+                    lastAssistantMessage: "I have a few options for the animation approach."
+                )
+            ),
+            // 7. Completed
+            AgentSession(
+                id: "scout-completed",
+                title: "Claude · completed-demo",
+                tool: .claudeCode,
+                origin: .demo,
+                attachmentState: .attached,
+                phase: .completed,
+                summary: "All scout states implemented and tested.",
+                updatedAt: now.addingTimeInterval(-60),
+                jumpTarget: JumpTarget(terminalApp: "Ghostty", workspaceName: "completed-demo", paneTitle: "completed"),
+                claudeMetadata: ClaudeSessionMetadata(
+                    lastAssistantMessage: "Done! All 8 scout icon states are working correctly."
+                )
+            ),
+        ]
+    }
+
     static func listSessions(now: Date) -> [AgentSession] {
         [
             runningSession(now: now),
