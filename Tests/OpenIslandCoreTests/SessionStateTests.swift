@@ -153,6 +153,49 @@ struct SessionStateTests {
     }
 
     @Test
+    func terminalOnlyApprovalIsClearedByIncidentalRunningUpdate() {
+        // Terminal-only approvals (requiresTerminalApproval == true) have no
+        // island-side resolver path. They must be released by the next
+        // activityUpdated(.running) from the agent, since that is our only
+        // signal that the user has answered in the terminal. The general
+        // preservesActionableState guard must NOT keep this session pinned.
+        let startedAt = Date(timeIntervalSince1970: 3_000)
+        var state = SessionState(
+            sessions: [
+                AgentSession(
+                    id: "claude-terminal-approval",
+                    title: "Claude · repo",
+                    tool: .claudeCode,
+                    attachmentState: .attached,
+                    phase: .waitingForApproval,
+                    summary: "Waiting for approval in terminal.",
+                    updatedAt: startedAt,
+                    permissionRequest: PermissionRequest(
+                        title: "Bash",
+                        summary: "Waiting for approval in terminal.",
+                        affectedPath: "/tmp/worktree",
+                        requiresTerminalApproval: true
+                    )
+                )
+            ]
+        )
+
+        state.apply(
+            .activityUpdated(
+                SessionActivityUpdated(
+                    sessionID: "claude-terminal-approval",
+                    summary: "Claude resumed work.",
+                    phase: .running,
+                    timestamp: startedAt.addingTimeInterval(5)
+                )
+            )
+        )
+
+        #expect(state.session(id: "claude-terminal-approval")?.phase == .running)
+        #expect(state.session(id: "claude-terminal-approval")?.permissionRequest == nil)
+    }
+
+    @Test
     func actionableStateResolvedClearsWaitingForApproval() {
         let startedAt = Date(timeIntervalSince1970: 5_000)
         var state = SessionState(
