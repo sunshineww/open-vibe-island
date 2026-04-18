@@ -1407,22 +1407,33 @@ private struct IslandSessionRow: View {
                     .strokeBorder(.orange.opacity(0.18))
             )
 
-            HStack(spacing: 8) {
-                Button("No") { onApprove?(.deny) }
-                    .buttonStyle(IslandWideButtonStyle(kind: .secondary))
-                Button("Yes") { onApprove?(.allowOnce) }
+            if session.permissionRequest?.requiresTerminalApproval == true {
+                // Approval is blocked in the terminal and we have no way to
+                // reply with a directive (e.g. Notification-driven prompts
+                // from tools that the user did not cover with a
+                // PermissionRequest matcher). Route the user back to the
+                // terminal instead of offering Allow/Deny buttons that can't
+                // actually dispatch.
+                Button("Respond in terminal →") { onJump() }
                     .buttonStyle(IslandWideButtonStyle(kind: .warning))
-                if let toolName = session.permissionRequest?.toolName {
-                    Button("Always Allow (\(toolName))") {
-                        let rule = ClaudePermissionRuleValue(toolName: toolName)
-                        let update = ClaudePermissionUpdate.addRules(
-                            destination: .session,
-                            rules: [rule],
-                            behavior: .allow
-                        )
-                        onApprove?(.allowWithUpdates([update]))
+            } else {
+                HStack(spacing: 8) {
+                    Button("No") { onApprove?(.deny) }
+                        .buttonStyle(IslandWideButtonStyle(kind: .secondary))
+                    Button("Yes") { onApprove?(.allowOnce) }
+                        .buttonStyle(IslandWideButtonStyle(kind: .warning))
+                    if let toolName = session.permissionRequest?.toolName {
+                        Button("Always Allow (\(toolName))") {
+                            let rule = ClaudePermissionRuleValue(toolName: toolName)
+                            let update = ClaudePermissionUpdate.addRules(
+                                destination: .session,
+                                rules: [rule],
+                                behavior: .allow
+                            )
+                            onApprove?(.allowWithUpdates([update]))
+                        }
+                        .buttonStyle(IslandWideButtonStyle(kind: .danger))
                     }
-                    .buttonStyle(IslandWideButtonStyle(kind: .danger))
                 }
             }
         }

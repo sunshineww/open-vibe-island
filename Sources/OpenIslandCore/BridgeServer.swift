@@ -772,6 +772,35 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
 
+            // When a permission prompt arrives as a Notification it means the
+            // user's hooks configuration did not match this tool with a
+            // PermissionRequest hook, so Claude is blocked in the terminal and
+            // we have no way to reply with a directive. Surface it as an
+            // actionable state anyway so the island tells the user to respond
+            // in the terminal — with `requiresTerminalApproval` set, the UI
+            // swaps the Allow/Deny buttons for a "Respond in terminal" jump.
+            if payload.notificationType == "permission_prompt" {
+                let summary = payload.notificationPreview
+                    ?? payload.message
+                    ?? "Waiting for approval in terminal."
+                emit(
+                    .permissionRequested(
+                        PermissionRequested(
+                            sessionID: payload.sessionID,
+                            request: PermissionRequest(
+                                title: payload.title ?? "Claude needs approval",
+                                summary: summary,
+                                affectedPath: payload.cwd,
+                                requiresTerminalApproval: true
+                            ),
+                            timestamp: .now
+                        )
+                    )
+                )
+                send(.response(.acknowledged), to: clientID)
+                return
+            }
+
             let currentPhase = localState.session(id: payload.sessionID)?.phase ?? .completed
             let notificationPhase: SessionPhase
             if payload.notificationType == "idle_prompt" {

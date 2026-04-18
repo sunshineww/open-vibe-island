@@ -430,6 +430,146 @@ struct ClaudeHooksTests {
         #expect(resolverCalls == 0)
     }
 
+    @Test
+    func claudeNotificationPermissionPromptRaisesTerminalApprovalState() async throws {
+        let socketURL = BridgeSocketLocation.uniqueTestURL()
+        let server = BridgeServer(socketURL: socketURL)
+        try server.start()
+        defer { server.stop() }
+
+        let observer = LocalBridgeClient(socketURL: socketURL)
+        let stream = try observer.connect()
+        defer { observer.disconnect() }
+        try await observer.send(.registerClient(role: .observer))
+
+        let notificationPayload = ClaudeHookPayload(
+            cwd: "/tmp/worktree",
+            hookEventName: .notification,
+            sessionID: "claude-session-notif-perm",
+            message: "Bash(npm install) waiting for approval",
+            title: "Bash",
+            notificationType: "permission_prompt"
+        )
+
+        async let responseTask = sendOnGCDThread(
+            .processClaudeHook(notificationPayload), socketURL: socketURL
+        )
+
+        var iterator = stream.makeAsyncIterator()
+        let permissionEvent = try await nextMatchingEvent(from: &iterator, maxEvents: 8) { event in
+            if case .permissionRequested = event {
+                return true
+            }
+            return false
+        }
+
+        guard case let .permissionRequested(payload) = permissionEvent else {
+            Issue.record("Expected a permissionRequested event for permission_prompt notification")
+            return
+        }
+
+        #expect(payload.request.requiresTerminalApproval == true)
+        #expect(payload.request.title == "Bash")
+        #expect(payload.request.affectedPath == "/tmp/worktree")
+        #expect(payload.request.summary.contains("waiting for approval"))
+        #expect(payload.request.toolName == nil)
+
+        let response = try await responseTask
+        #expect(response == .acknowledged)
+    }
+
+    @Test
+    func claudeNotificationIdlePromptKeepsPhaseCompleted() async throws {
+        let socketURL = BridgeSocketLocation.uniqueTestURL()
+        let server = BridgeServer(socketURL: socketURL)
+        try server.start()
+        defer { server.stop() }
+
+        let observer = LocalBridgeClient(socketURL: socketURL)
+        let stream = try observer.connect()
+        defer { observer.disconnect() }
+        try await observer.send(.registerClient(role: .observer))
+
+        let notificationPayload = ClaudeHookPayload(
+            cwd: "/tmp/worktree",
+            hookEventName: .notification,
+            sessionID: "claude-session-notif-idle",
+            message: "Claude is waiting for your input.",
+            notificationType: "idle_prompt"
+        )
+
+        async let responseTask = sendOnGCDThread(
+            .processClaudeHook(notificationPayload), socketURL: socketURL
+        )
+
+        var iterator = stream.makeAsyncIterator()
+        let activityEvent = try await nextMatchingEvent(from: &iterator, maxEvents: 8) { event in
+            if case .activityUpdated = event {
+                return true
+            }
+            return false
+        }
+
+        guard case let .activityUpdated(payload) = activityEvent else {
+            Issue.record("Expected an activityUpdated event for idle_prompt notification")
+            return
+        }
+
+        #expect(payload.phase == .completed)
+
+        let response = try await responseTask
+        #expect(response == .acknowledged)
+    }
+
+    @Test
+    func claudeNotificationWithUnknownTypeDoesNotRaisePermissionState() async throws {
+        let socketURL = BridgeSocketLocation.uniqueTestURL()
+        let server = BridgeServer(socketURL: socketURL)
+        try server.start()
+        defer { server.stop() }
+
+        let observer = LocalBridgeClient(socketURL: socketURL)
+        let stream = try observer.connect()
+        defer { observer.disconnect() }
+        try await observer.send(.registerClient(role: .observer))
+
+        // `auth_success` is one of Claude Code's documented notification
+        // types; it carries no actionable intent and must not escalate
+        // the phase to waitingForApproval.
+        let notificationPayload = ClaudeHookPayload(
+            cwd: "/tmp/worktree",
+            hookEventName: .notification,
+            sessionID: "claude-session-notif-auth",
+            message: "Signed in to claude.ai.",
+            notificationType: "auth_success"
+        )
+
+        async let responseTask = sendOnGCDThread(
+            .processClaudeHook(notificationPayload), socketURL: socketURL
+        )
+
+        var iterator = stream.makeAsyncIterator()
+        // The notification should surface as an activityUpdated (not
+        // permissionRequested). Scan a bounded window and assert we don't
+        // encounter a permissionRequested event in that window.
+        var sawActivity = false
+        for _ in 0..<8 {
+            let event = try await nextEvent(from: &iterator)
+            if case .permissionRequested = event {
+                Issue.record("auth_success notification unexpectedly raised a permissionRequested event")
+                break
+            }
+            if case .activityUpdated = event {
+                sawActivity = true
+                break
+            }
+        }
+        #expect(sawActivity)
+
+        let response = try await responseTask
+        #expect(response == .acknowledged)
+    }
+
 }
 
 private enum ClaudeHooksTestError: Error {
