@@ -26,6 +26,10 @@ struct OpenIslandBrandMark: View {
         case completed
         /// Context is being compacted/merged.
         case compacting
+        /// Waiting for user to type next prompt (during running, after input before tools).
+        case waitingForInput
+        /// Agent completed, process alive, awaiting next prompt.
+        case awaitingPrompt
 
         /// All phases animate — each at its own rhythm.
         var isAnimated: Bool { true }
@@ -261,6 +265,54 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
+    // ── 10. Waiting for Input: Two big round eyes (frame A: look left) ──
+    private static let inputFrameA: [String] = [
+        ".BB..BB.",
+        "BHHBBHHB",
+        "BHHBBHHB",
+        "BEHBBEHB",
+        "BHHBBHHB",
+        "BHHBBHHB",
+        ".BB..BB.",
+        "........",
+    ]
+
+    // ── 10. Waiting for Input: Two big round eyes (frame B: look right) ──
+    private static let inputFrameB: [String] = [
+        ".BB..BB.",
+        "BHHBBHHB",
+        "BHHBBHHB",
+        "BHEBBHEB",
+        "BHHBBHHB",
+        "BHHBBHHB",
+        ".BB..BB.",
+        "........",
+    ]
+
+    // ── 11. Awaiting Prompt: Monitor face (frame A: eyes open) ──
+    private static let awaitingFrameA: [String] = [
+        "BBBBBBBB",
+        "BH....HB",
+        "B..EE..B",
+        "B......B",
+        "B.HHHH.B",
+        "BBBBBBBB",
+        "..BBBB..",
+        "..B..B..",
+    ]
+
+    // ── 11. Awaiting Prompt: Monitor face (frame B: eyes blink) ──
+    private static let awaitingFrameB: [String] = [
+        "BBBBBBBB",
+        "BH....HB",
+        "B..WW..B",
+        "B......B",
+        "B.HHHH.B",
+        "BBBBBBBB",
+        "..BBBB..",
+        "..B..B..",
+    ]
+
     // MARK: - Badge symbol patterns (8×8, rendered to the right of the scout)
 
     /// "..." thinking dots
@@ -335,6 +387,18 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
+    /// ▏blinking cursor (input waiting)
+    private static let cursorBadgePattern: [String] = [
+        "........",
+        "...BB...",
+        "...BB...",
+        "...BB...",
+        "...BB...",
+        "...BB...",
+        "..BBBB..",
+        "........",
+    ]
+
     // MARK: - Precomputed pixel lists
 
     private static func parsePixels(_ pattern: [String]) -> [(x: Int, y: Int, role: Character)] {
@@ -363,6 +427,10 @@ struct OpenIslandBrandMark: View {
     private static let completedPixelsB = parsePixels(completedFrameB)
     private static let compactingPixelsA = parsePixels(compactingFrameA)
     private static let compactingPixelsB = parsePixels(compactingFrameB)
+    private static let inputPixelsA = parsePixels(inputFrameA)
+    private static let inputPixelsB = parsePixels(inputFrameB)
+    private static let awaitingPixelsA = parsePixels(awaitingFrameA)
+    private static let awaitingPixelsB = parsePixels(awaitingFrameB)
 
     // MARK: - Pixel badge patterns (3×5, drawn top-right of scout)
     //
@@ -428,6 +496,7 @@ struct OpenIslandBrandMark: View {
     private static let exclamationBadgePixels = parsePixels(exclamationBadgePattern)
     private static let questionBadgePixels = parsePixels(questionBadgePattern)
     private static let checkBadgePixels = parsePixels(checkBadgePattern)
+    private static let cursorBadgePixels = parsePixels(cursorBadgePattern)
 
     /// The badge pixel pattern for the current phase, if any.
     var currentBadgePixels: [(x: Int, y: Int, role: Character)]? {
@@ -441,6 +510,8 @@ struct OpenIslandBrandMark: View {
         case .waitingForAnswer:     return Self.questionBadgePixels
         case .completed:            return Self.checkBadgePixels
         case .compacting:           return nil
+        case .waitingForInput:      return nil
+        case .awaitingPrompt:       return Self.cursorBadgePixels
         }
     }
 
@@ -469,6 +540,10 @@ struct OpenIslandBrandMark: View {
             return animationFrame ? Self.completedPixelsB : Self.completedPixelsA
         case .compacting:
             return animationFrame ? Self.compactingPixelsB : Self.compactingPixelsA
+        case .waitingForInput:
+            return animationFrame ? Self.inputPixelsB : Self.inputPixelsA
+        case .awaitingPrompt:
+            return animationFrame ? Self.awaitingPixelsB : Self.awaitingPixelsA
         }
     }
 
@@ -532,6 +607,10 @@ struct OpenIslandBrandMark: View {
             frameDuration = 0.9          // sparkle celebration
         case .compacting:
             frameDuration = 0.6          // hourglass flip
+        case .waitingForInput:
+            frameDuration = 0.8          // hourglass flip
+        case .awaitingPrompt:
+            frameDuration = 1.0          // slow blink
         }
 
         withAnimation(.easeInOut(duration: frameDuration).repeatForever(autoreverses: true)) {

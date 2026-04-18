@@ -2210,7 +2210,12 @@ public final class BridgeServer: @unchecked Sendable {
         switch hookEventName {
         case .postToolUse, .postToolUseFailure, .permissionDenied, .stop, .stopFailure, .sessionEnd:
             return nil
-        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact:
+        case .userPromptSubmit, .notification:
+            // Clear stale __compacting__ state: once a new prompt arrives or
+            // a notification fires, compacting is over even without a PostToolUse.
+            if existing == "__compacting__" { return nil }
+            return existing
+        case .sessionStart, .preToolUse, .permissionRequest, .subagentStart, .subagentStop, .preCompact:
             return existing
         }
     }
@@ -2469,6 +2474,15 @@ public final class BridgeServer: @unchecked Sendable {
 
         for sessionID in pendingSessionIDs {
             pendingApprovals.removeValue(forKey: sessionID)
+            emit(
+                .actionableStateResolved(
+                    ActionableStateResolved(
+                        sessionID: sessionID,
+                        summary: "Hook process disconnected.",
+                        timestamp: .now
+                    )
+                )
+            )
         }
 
         let pendingClaudeSessionIDs = pendingClaudeInteractions.compactMap { entry -> String? in

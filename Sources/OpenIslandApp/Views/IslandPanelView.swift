@@ -167,6 +167,9 @@ struct IslandPanelView: View {
         case .waitingForAnswer:
             return .waitingForAnswer
         case .completed:
+            if session.isProcessAlive {
+                return .awaitingPrompt
+            }
             return .completed
         }
     }
@@ -183,15 +186,27 @@ struct IslandPanelView: View {
     }
 
     private static let codingTools: Set<String> = [
+        // Claude Code
         "read", "edit", "write", "grep", "glob", "notebookedit", "lsp",
+        // Codex
+        "apply_patch",
+        // MCP / misc
+        "mcp", "todocreate", "todowrite", "todoread",
+        "taskcreate", "taskupdate", "taskget", "tasklist",
     ]
 
     private static let commandTools: Set<String> = [
+        // Claude Code
         "bash", "exec_command",
+        // Codex
+        "shell", "write_stdin",
+        // General
+        "computer", "execute",
     ]
 
     private static let searchTools: Set<String> = [
         "websearch", "webfetch", "agent",
+        "listmcpresourcestool", "readmcpresourcetool",
     ]
 
     fileprivate static func scoutPhaseForRunning(toolName: String?) -> OpenIslandBrandMark.ScoutPhase {
@@ -210,16 +225,20 @@ struct IslandPanelView: View {
         switch toolName.lowercased() {
         case "exec_command":    return "Bash"
         case "bash":            return "Bash"
+        case "shell":           return "Shell"
         case "read":            return "Read"
         case "edit":            return "Edit"
         case "write":           return "Write"
         case "grep":            return "Grep"
         case "glob":            return "Glob"
+        case "apply_patch":     return "Patch"
+        case "write_stdin":     return "Input"
         case "notebookedit":    return "Notebook"
         case "lsp":             return "LSP"
         case "websearch":       return "Search"
         case "webfetch":        return "Fetch"
         case "agent":           return "Agent"
+        case "computer":        return "Computer"
         case "__compacting__":  return "Compact"
         default:                return toolName
         }
@@ -235,7 +254,7 @@ struct IslandPanelView: View {
 
     fileprivate static func scoutPhaseTint(_ phase: OpenIslandBrandMark.ScoutPhase) -> Color {
         switch phase {
-        case .idle:                 return .mint.opacity(0.6)
+        case .idle:                 return Color(red: 0.75, green: 0.82, blue: 0.9)      // 银灰蓝
         case .thinking:             return Color(red: 0.43, green: 0.62, blue: 1.0)      // 蓝色
         case .coding:               return Color(red: 0.0, green: 0.8, blue: 0.85)       // 青色
         case .runningCommand:       return Color(red: 0.65, green: 0.45, blue: 1.0)      // 紫色
@@ -244,6 +263,8 @@ struct IslandPanelView: View {
         case .waitingForAnswer:     return .yellow
         case .completed:            return .green
         case .compacting:           return Color(red: 0.85, green: 0.55, blue: 0.2)      // 琥珀色
+        case .waitingForInput:      return Color(red: 0.5, green: 0.8, blue: 0.5)       // 柔和绿
+        case .awaitingPrompt:       return Color(red: 0.6, green: 0.75, blue: 0.95)     // 浅蓝
         }
     }
 
@@ -622,7 +643,7 @@ struct IslandPanelView: View {
     private static let maxSessionListHeight: CGFloat = 560
 
     private var sessionList: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
+        TimelineView(.periodic(from: .now, by: 5)) { context in
             if isNotificationMode {
                 // Notification mode: NO ScrollView — content sizes naturally
                 sessionListContent(context: context)
@@ -1640,7 +1661,7 @@ private struct IslandSessionRow: View {
     }
 
     private func statusDot(for presence: IslandSessionPresence) -> some View {
-        let rowScoutPhase = rowScoutPhase(for: presence)
+        let rowScoutPhase = rowScoutPhase(for: presence, at: referenceDate)
         let tint = IslandPanelView.scoutPhaseTint(rowScoutPhase)
         return HStack(spacing: 1) {
             OpenIslandBrandMark(
@@ -1664,7 +1685,7 @@ private struct IslandSessionRow: View {
         .padding(.top, 2)
     }
 
-    private func rowScoutPhase(for presence: IslandSessionPresence) -> OpenIslandBrandMark.ScoutPhase {
+    private func rowScoutPhase(for presence: IslandSessionPresence, at now: Date) -> OpenIslandBrandMark.ScoutPhase {
         switch session.phase {
         case .running:
             return IslandPanelView.scoutPhaseForRunning(toolName: session.currentToolName)
@@ -1673,8 +1694,17 @@ private struct IslandSessionRow: View {
         case .waitingForAnswer:
             return .waitingForAnswer
         case .completed:
+            // Completion card showing → trophy
+            if isActionable {
+                return .completed
+            }
             if presence == .inactive {
                 return .idle
+            }
+            // Show trophy for 5s after completion, then awaitingPrompt
+            if session.isProcessAlive {
+                let sinceUpdate = now.timeIntervalSince(session.updatedAt)
+                return sinceUpdate < 10 ? .completed : .awaitingPrompt
             }
             return .completed
         }
