@@ -9,7 +9,7 @@ struct TerminalJumpService {
     typealias OpenAction = @Sendable ([String]) throws -> Void
     typealias AppleScriptRunner = @Sendable (String) throws -> String
     typealias ProcessRunner = @Sendable (String, [String]) -> Bool
-    typealias IDEWindowFocuser = @Sendable (String, JumpTarget) -> Bool
+    typealias JetBrainsWindowFocuser = @Sendable (String, JumpTarget) -> Bool
     typealias WarpFocusedPaneReader = @Sendable () -> String?
     typealias WarpTabCountReader = @Sendable () -> Int
     /// Returns true when Warp is the system's frontmost app and ready to
@@ -208,7 +208,7 @@ struct TerminalJumpService {
     private let openAction: OpenAction
     private let appleScriptRunner: AppleScriptRunner
     private let processRunner: ProcessRunner
-    private let ideWindowFocuser: IDEWindowFocuser
+    private let jetBrainsWindowFocuser: JetBrainsWindowFocuser
     private let warpFocusedPaneReader: WarpFocusedPaneReader
     private let warpTabCountReader: WarpTabCountReader
     private let warpKeystroker: KeystrokeInjector
@@ -224,7 +224,7 @@ struct TerminalJumpService {
         openAction: @escaping OpenAction = Self.defaultOpenAction(arguments:),
         appleScriptRunner: @escaping AppleScriptRunner = Self.defaultAppleScriptRunner(script:),
         processRunner: @escaping ProcessRunner = Self.defaultProcessRunner(executable:arguments:),
-        ideWindowFocuser: @escaping IDEWindowFocuser = Self.defaultIDEWindowFocuser(bundleIdentifier:target:),
+        jetBrainsWindowFocuser: @escaping JetBrainsWindowFocuser = Self.defaultJetBrainsWindowFocuser(bundleIdentifier:target:),
         warpFocusedPaneReader: @escaping WarpFocusedPaneReader = { WarpSQLiteReader().currentFocusedPaneUUID() },
         warpTabCountReader: @escaping WarpTabCountReader = { WarpSQLiteReader().tabCountInActiveWindow() },
         warpKeystroker: KeystrokeInjector = DefaultKeystrokeInjector(),
@@ -241,7 +241,7 @@ struct TerminalJumpService {
         self.openAction = openAction
         self.appleScriptRunner = appleScriptRunner
         self.processRunner = processRunner
-        self.ideWindowFocuser = ideWindowFocuser
+        self.jetBrainsWindowFocuser = jetBrainsWindowFocuser
         self.warpFocusedPaneReader = warpFocusedPaneReader
         self.warpTabCountReader = warpTabCountReader
         self.warpKeystroker = warpKeystroker
@@ -358,26 +358,25 @@ struct TerminalJumpService {
                     return "Focused the matching \(descriptor.displayName) pane."
                 }
             case let id where Self.vscodeFamilyBundleIDs.contains(id):
-                if appIsRunning {
-                    // AX window focus — match by project name in title.
-                    if ideWindowFocuser(id, target) {
-                        return "Focused the matching \(descriptor.displayName) window."
+                // Only reuse-via-CLI when the app is NOT already running.
+                // `code -r <path>` against a running VS Code reuses the
+                // currently focused window when no existing window hosts the
+                // target workspace — which is especially destructive for
+                // worktree paths, where it silently swaps out whatever the
+                // user was editing. When the app is already running we would
+                // rather just activate it than risk clobbering that context.
+                if !appIsRunning, let workingDirectory = target.workingDirectory {
+                    let opened = jumpToVSCodeFamilyWorkspace(workingDirectory, bundleIdentifier: id)
+                    if opened {
+                        return "Focused the matching \(descriptor.displayName) workspace."
                     }
-                    // AX failed (no permission or no match) — just activate
-                    // the app. Do NOT use `code -r` which would replace the
-                    // current workspace (especially bad for worktree paths).
+                }
+                if appIsRunning {
                     try openAction(["-b", id])
                     return "Activated \(descriptor.displayName)."
                 }
-                // App not running — open the workspace via CLI.
-                if let workingDirectory = target.workingDirectory {
-                    let opened = jumpToVSCodeFamilyWorkspace(workingDirectory, bundleIdentifier: id)
-                    if opened {
-                        return "Opened \(descriptor.displayName) with workspace."
-                    }
-                }
             case let id where Self.jetbrainsBundleIDs.contains(id):
-                if appIsRunning, ideWindowFocuser(id, target) {
+                if appIsRunning, jetBrainsWindowFocuser(id, target) {
                     return "Focused the matching \(descriptor.displayName) window."
                 }
                 if let workingDirectory = target.workingDirectory {
@@ -828,11 +827,11 @@ struct TerminalJumpService {
                 end if
             end repeat
 
-            if targetTerminal is missing value and "\(workingDirectory)" is not "" then
+            if targetTerminal is missing value and "\(workingDirectory)" is not "" and "\(paneTitle)" is not "" then
                 repeat with aWindow in windows
                     repeat with aTab in tabs of aWindow
                         repeat with aTerminal in terminals of aTab
-                            if (working directory of aTerminal as text) is "\(workingDirectory)" then
+                            if (working directory of aTerminal as text) is "\(workingDirectory)" and (name of aTerminal as text) contains "\(paneTitle)" then
                                 set targetWindow to aWindow
                                 set targetTab to aTab
                                 set targetTerminal to aTerminal
@@ -856,6 +855,29 @@ struct TerminalJumpService {
                     repeat with aTab in tabs of aWindow
                         repeat with aTerminal in terminals of aTab
                             if (name of aTerminal as text) contains "\(paneTitle)" then
+                                set targetWindow to aWindow
+                                set targetTab to aTab
+                                set targetTerminal to aTerminal
+                                exit repeat
+                            end if
+                        end repeat
+
+                        if targetTerminal is not missing value then
+                            exit repeat
+                        end if
+                    end repeat
+
+                    if targetTerminal is not missing value then
+                        exit repeat
+                    end if
+                end repeat
+            end if
+
+            if targetTerminal is missing value and "\(workingDirectory)" is not "" then
+                repeat with aWindow in windows
+                    repeat with aTab in tabs of aWindow
+                        repeat with aTerminal in terminals of aTab
+                            if (working directory of aTerminal as text) is "\(workingDirectory)" then
                                 set targetWindow to aWindow
                                 set targetTab to aTab
                                 set targetTerminal to aTerminal
@@ -1290,68 +1312,163 @@ struct TerminalJumpService {
         }
     }
 
-    // MARK: - AX-based IDE window focuser (VS Code family + JetBrains)
-
-    private static func defaultIDEWindowFocuser(bundleIdentifier: String, target: JumpTarget) -> Bool {
+    private static func defaultJetBrainsWindowFocuser(bundleIdentifier: String, target: JumpTarget) -> Bool {
         let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
-        guard !runningApps.isEmpty else { return false }
+        guard !runningApps.isEmpty else {
+            return false
+        }
 
         var bestMatch: (app: NSRunningApplication, window: AXUIElement, score: Int)?
         for app in runningApps {
-            let axApp = AXUIElementCreateApplication(app.processIdentifier)
-            var windowsRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-                  let windows = windowsRef as? [AXUIElement] else { continue }
+            let applicationElement = AXUIElementCreateApplication(app.processIdentifier)
+            guard let windows = copyAXElementArrayValue(
+                of: applicationElement,
+                attribute: kAXWindowsAttribute as CFString
+            ) else {
+                continue
+            }
 
             for window in windows {
-                let score = ideWindowScore(for: window, target: target)
-                guard score > 0 else { continue }
-                if let current = bestMatch, current.score >= score { continue }
+                let score = jetBrainsWindowScore(for: window, target: target)
+                guard score > 0 else {
+                    continue
+                }
+
+                if let currentBest = bestMatch, currentBest.score >= score {
+                    continue
+                }
+
                 bestMatch = (app, window, score)
             }
         }
 
-        guard let bestMatch else { return false }
+        guard let bestMatch else {
+            return false
+        }
 
         _ = bestMatch.app.activate(options: [.activateIgnoringOtherApps])
-        _ = AXUIElementPerformAction(bestMatch.window, kAXRaiseAction as CFString)
-        return true
+        let applicationElement = AXUIElementCreateApplication(bestMatch.app.processIdentifier)
+        _ = AXUIElementSetAttributeValue(
+            applicationElement,
+            kAXFrontmostAttribute as CFString,
+            kCFBooleanTrue
+        )
+        _ = AXUIElementSetAttributeValue(
+            bestMatch.window,
+            kAXMainAttribute as CFString,
+            kCFBooleanTrue
+        )
+        _ = AXUIElementSetAttributeValue(
+            bestMatch.window,
+            kAXFocusedAttribute as CFString,
+            kCFBooleanTrue
+        )
+
+        let raiseResult = AXUIElementPerformAction(bestMatch.window, kAXRaiseAction as CFString)
+        return raiseResult == .success
+            || raiseResult == .cannotComplete
+            || raiseResult == .actionUnsupported
     }
 
-    private static func ideWindowScore(for window: AXUIElement, target: JumpTarget) -> Int {
-        // Skip non-standard windows (floating panels, etc.)
-        var subroleRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subroleRef) == .success,
-           let subrole = subroleRef as? String,
-           subrole != kAXStandardWindowSubrole as String {
+    private static func jetBrainsWindowScore(for window: AXUIElement, target: JumpTarget) -> Int {
+        let subrole = copyStringValue(of: window, attribute: kAXSubroleAttribute as CFString)
+        if let subrole, subrole != kAXStandardWindowSubrole as String {
             return 0
         }
 
-        var titleRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
-        let title = (titleRef as? String)?.lowercased()
+        let title = normalizedWindowMatchString(
+            copyStringValue(of: window, attribute: kAXTitleAttribute as CFString)
+        )
+        let document = normalizedWindowMatchString(
+            copyStringValue(of: window, attribute: kAXDocumentAttribute as CFString)
+        )
 
         var score = 0
+        if let workingDirectory = normalizedPathForWindowMatching(target.workingDirectory) {
+            if document == workingDirectory {
+                score += 2_000
+            } else if let document, document.hasPrefix(workingDirectory) || workingDirectory.hasPrefix(document) {
+                score += 1_000
+            }
 
-        // Match by project directory name in window title
-        if let workingDirectory = target.workingDirectory {
-            let projectName = URL(fileURLWithPath: workingDirectory).lastPathComponent.lowercased()
-            if !projectName.isEmpty, title?.contains(projectName) == true {
-                score += 400 + projectName.count
+            let projectDirectoryName = URL(fileURLWithPath: workingDirectory).lastPathComponent.lowercased()
+            if !projectDirectoryName.isEmpty, title?.contains(projectDirectoryName) == true {
+                score += 400 + projectDirectoryName.count
             }
         }
 
-        // Match by workspace name
-        let workspaceName = target.workspaceName.lowercased()
-        if !workspaceName.isEmpty {
-            if title == workspaceName {
-                score += 800
-            } else if title?.contains(workspaceName) == true {
-                score += 300 + workspaceName.count
+        for candidate in jetBrainsWindowTitleCandidates(for: target) {
+            if title == candidate {
+                score += 800 + candidate.count
+            } else if title?.contains(candidate) == true {
+                score += 300 + candidate.count
             }
         }
 
         return score
+    }
+
+    private static func jetBrainsWindowTitleCandidates(for target: JumpTarget) -> [String] {
+        var candidates: [String] = []
+        let workspaceName = normalizedWindowMatchString(target.workspaceName)
+        if let workspaceName, !workspaceName.isEmpty {
+            candidates.append(workspaceName)
+        }
+
+        if let workingDirectory = normalizedPathForWindowMatching(target.workingDirectory) {
+            let projectDirectoryName = URL(fileURLWithPath: workingDirectory).lastPathComponent.lowercased()
+            if !projectDirectoryName.isEmpty {
+                candidates.append(projectDirectoryName)
+            }
+        }
+
+        return Array(Set(candidates))
+    }
+
+    private static func normalizedWindowMatchString(_ value: String?) -> String? {
+        guard let value = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+
+        return value.lowercased()
+    }
+
+    private static func normalizedPathForWindowMatching(_ path: String?) -> String? {
+        guard let path = path?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return nil
+        }
+
+        return URL(fileURLWithPath: path).standardizedFileURL.path.lowercased()
+    }
+
+    private static func copyAXElementArrayValue(
+        of element: AXUIElement,
+        attribute: CFString
+    ) -> [AXUIElement]? {
+        copyAttributeValue(of: element, attribute: attribute) as? [AXUIElement]
+    }
+
+    private static func copyStringValue(
+        of element: AXUIElement,
+        attribute: CFString
+    ) -> String? {
+        copyAttributeValue(of: element, attribute: attribute) as? String
+    }
+
+    private static func copyAttributeValue(
+        of element: AXUIElement,
+        attribute: CFString
+    ) -> AnyObject? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute, &value)
+        guard result == .success else {
+            return nil
+        }
+        return value
     }
 
     private func escapeAppleScript(_ value: String?) -> String {

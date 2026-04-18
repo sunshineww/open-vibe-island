@@ -152,6 +152,118 @@ struct TerminalSessionAttachmentProbeTests {
     }
 
     @Test
+    func ghosttyActiveSessionWithDeadRecordedIDCanStillRehomeByTitleMatch() {
+        // Active sessions (a process is currently alive) are allowed to
+        // rehome via the title pass even if their recorded terminalSessionID
+        // has gone stale. `canFallbackFromRecordedGhosttySessionID` should
+        // take the allowRecordedSessionIDOverride=isActiveSession path.
+        let now = Date(timeIntervalSince1970: 1_000)
+        let probe = TerminalSessionAttachmentProbe()
+        let session = ghosttySession(
+            id: "migrated",
+            updatedAt: now,
+            phase: .running,
+            terminalSessionID: "ghostty-dead",
+            paneTitle: "codex ~/tmp/worktree"
+        )
+
+        let resolutions = probe.sessionResolutions(
+            for: [session],
+            ghosttyAvailability: .available(
+                [
+                    .init(sessionID: "ghostty-new", workingDirectory: "/tmp/worktree", title: "codex ~/tmp/worktree"),
+                ],
+                appIsRunning: true
+            ),
+            terminalAvailability: .available([] as [TerminalSessionAttachmentProbe.TerminalTabSnapshot], appIsRunning: false),
+            activeProcesses: [
+                .init(tool: .codex, sessionID: "migrated", workingDirectory: "/tmp/worktree", terminalTTY: "/dev/ttys000"),
+            ],
+            now: now
+        )
+
+        #expect(resolutions["migrated"]?.attachmentState == .attached)
+        #expect(resolutions["migrated"]?.correctedJumpTarget?.terminalSessionID == "ghostty-new")
+    }
+
+    @Test
+    func ghosttyInactiveSessionWithDeadRecordedIDIsNotRehomedByTitleMatch() {
+        // Regression guard for the title-match pass: an inactive session
+        // (no live process) whose recorded terminalSessionID is not claimed
+        // by any snapshot this cycle must not be silently rehomed to an
+        // unrelated snapshot just because its paneTitle happens to appear
+        // inside that snapshot's title. The stable-identifier guard must
+        // preserve the session's .stale state in that case.
+        let now = Date(timeIntervalSince1970: 1_000)
+        let probe = TerminalSessionAttachmentProbe()
+        let session = ghosttySession(
+            id: "orphan",
+            updatedAt: now.addingTimeInterval(-30),
+            phase: .running,
+            terminalSessionID: "ghostty-dead",
+            paneTitle: "codex ~/tmp/worktree"
+        )
+
+        let resolutions = probe.sessionResolutions(
+            for: [session],
+            ghosttyAvailability: .available(
+                [
+                    .init(sessionID: "ghostty-other", workingDirectory: "/tmp/worktree", title: "codex ~/tmp/worktree"),
+                ],
+                appIsRunning: true
+            ),
+            terminalAvailability: .available([] as [TerminalSessionAttachmentProbe.TerminalTabSnapshot], appIsRunning: false),
+            now: now
+        )
+
+        #expect(resolutions["orphan"]?.attachmentState == .stale)
+    }
+
+    @Test
+    func ghosttyTitleMatchBeatsSameDirectoryFallbackForActiveSessions() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let probe = TerminalSessionAttachmentProbe()
+        let primary = ghosttySession(
+            id: "primary",
+            updatedAt: now,
+            phase: .running,
+            terminalSessionID: "ghostty-1",
+            paneTitle: "codex ~/tmp/open-island"
+        )
+        let titled = ghosttySession(
+            id: "titled",
+            updatedAt: now.addingTimeInterval(-30),
+            phase: .running,
+            terminalSessionID: "ghostty-stale",
+            paneTitle: "open-island · hello · abc12345",
+            workingDirectory: "/tmp/open-island",
+            workspaceName: "open-island"
+        )
+
+        let resolutions = probe.sessionResolutions(
+            for: [primary, titled],
+            ghosttyAvailability: .available(
+                [
+                    .init(sessionID: "ghostty-1", workingDirectory: "/tmp/open-island", title: "codex ~/tmp/open-island"),
+                    .init(sessionID: "ghostty-2", workingDirectory: "/tmp/open-island", title: "open-island · hello · abc12345"),
+                ],
+                appIsRunning: true
+            ),
+            terminalAvailability: .available([] as [TerminalSessionAttachmentProbe.TerminalTabSnapshot], appIsRunning: false),
+            activeProcesses: [
+                .init(tool: .codex, sessionID: "primary", workingDirectory: "/tmp/open-island", terminalTTY: "/dev/ttys000"),
+                .init(tool: .codex, sessionID: "titled", workingDirectory: "/tmp/open-island", terminalTTY: "/dev/ttys001"),
+            ],
+            now: now
+        )
+
+        #expect(resolutions["primary"]?.attachmentState == .attached)
+        #expect(resolutions["titled"]?.attachmentState == .attached)
+        #expect(resolutions["titled"]?.correctedJumpTarget?.terminalSessionID == "ghostty-2")
+        #expect(resolutions["titled"]?.correctedJumpTarget?.paneTitle == "open-island · hello · abc12345")
+    }
+
+    @Test
     func explicitTerminalMissDropsRecentlyAttachedSessionOutOfLiveState() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
