@@ -434,6 +434,28 @@ struct TerminalSessionAttachmentProbe {
 
         for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
             let matches = sessions.filter { session in
+                !claimedSessionIDs.contains(session.id)
+                    && activeSessionIDs.contains(session.id)
+                    && ghosttyTitleSnapshotMatches(
+                        snapshot,
+                        session: session,
+                        claimedSnapshotIDs: claimedSnapshotIDs,
+                        activeSessionIDs: activeSessionIDs,
+                        now: now
+                    )
+            }
+
+            guard let preferred = preferredSession(from: matches, activeSessionIDs: activeSessionIDs) else {
+                continue
+            }
+
+            assignments[preferred.id] = snapshot
+            claimedSessionIDs.insert(preferred.id)
+            claimedSnapshotIDs.insert(snapshot.sessionID)
+        }
+
+        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
+            let matches = sessions.filter { session in
                 ghosttyFallbackCandidateMatches(
                     snapshot,
                     session: session,
@@ -462,6 +484,29 @@ struct TerminalSessionAttachmentProbe {
                     && exactGhosttySnapshotMatches(
                         snapshot,
                         session: session,
+                        activeSessionIDs: activeSessionIDs,
+                        now: now
+                    )
+            }
+
+            guard let preferred = preferredSession(from: matches, activeSessionIDs: activeSessionIDs) else {
+                continue
+            }
+
+            assignments[preferred.id] = snapshot
+            claimedSessionIDs.insert(preferred.id)
+            claimedSnapshotIDs.insert(snapshot.sessionID)
+        }
+
+        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
+            let matches = sessions.filter { session in
+                !claimedSessionIDs.contains(session.id)
+                    && !activeSessionIDs.contains(session.id)
+                    && isRecentEnoughForInactiveMatch(session, now: now)
+                    && ghosttyTitleSnapshotMatches(
+                        snapshot,
+                        session: session,
+                        claimedSnapshotIDs: claimedSnapshotIDs,
                         activeSessionIDs: activeSessionIDs,
                         now: now
                     )
@@ -580,6 +625,43 @@ struct TerminalSessionAttachmentProbe {
             snapshot,
             session: session,
             isActiveSession: activeSessionIDs.contains(session.id),
+            now: now
+        )
+    }
+
+    private func ghosttyTitleSnapshotMatches(
+        _ snapshot: GhosttyTerminalSnapshot,
+        session: AgentSession,
+        claimedSnapshotIDs: Set<String>,
+        activeSessionIDs: Set<String>,
+        now: Date
+    ) -> Bool {
+        guard let paneTitle = nonEmptyValue(session.jumpTarget?.paneTitle),
+              snapshot.title.contains(paneTitle) else {
+            return false
+        }
+
+        let isActiveSession = activeSessionIDs.contains(session.id)
+
+        // Honour the stable-identifier guard: if the session already has a
+        // recorded terminalSessionID that is not claimed by any snapshot in
+        // this cycle, its recorded pane is dead (or still unclaimed) and a
+        // coincidental paneTitle substring match on an unrelated snapshot
+        // must not silently re-home the session to that stranger.
+        if let jumpTarget = session.jumpTarget {
+            guard canFallbackFromRecordedGhosttySessionID(
+                jumpTarget,
+                allowRecordedSessionIDOverride: isActiveSession,
+                claimedSnapshotIDs: claimedSnapshotIDs
+            ) else {
+                return false
+            }
+        }
+
+        return snapshotLikelyHostsSession(
+            snapshot,
+            session: session,
+            isActiveSession: isActiveSession,
             now: now
         )
     }

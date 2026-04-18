@@ -51,6 +51,26 @@ final class TerminalJumpServiceTests: XCTestCase {
         XCTAssertTrue(script.contains("if \"\" is \"\" then"))
     }
 
+    func testGhosttyJumpScriptPrefersTitleMatchBeforeBareWorkingDirectoryFallback() {
+        let target = JumpTarget(
+            terminalApp: "Ghostty",
+            workspaceName: "open-island",
+            paneTitle: "open-island · hello · abc12345",
+            workingDirectory: "/Users/test/open-island"
+        )
+
+        let script = TerminalJumpService().ghosttyJumpScript(for: target)
+        let titleOnlyNeedle = "if (name of aTerminal as text) contains \"open-island · hello · abc12345\" then"
+        let cwdOnlyNeedle = "if (working directory of aTerminal as text) is \"/Users/test/open-island\" then"
+
+        guard let titleOnlyRange = script.range(of: titleOnlyNeedle),
+              let cwdOnlyRange = script.range(of: cwdOnlyNeedle) else {
+            return XCTFail("Ghostty jump script is missing expected title/cwd fallback branches.")
+        }
+
+        XCTAssertLessThan(titleOnlyRange.lowerBound, cwdOnlyRange.lowerBound)
+    }
+
     func testGhosttyJumpIntegrationMatchesFocusedTerminalForLiveSurfaces() throws {
         guard ProcessInfo.processInfo.environment["OPEN_ISLAND_RUN_GHOSTTY_JUMP_INTEGRATION"] == "1" else {
             throw XCTSkip("Set OPEN_ISLAND_RUN_GHOSTTY_JUMP_INTEGRATION=1 to run live Ghostty jump verification.")
@@ -152,6 +172,45 @@ final class TerminalJumpServiceTests: XCTestCase {
         XCTAssertEqual(openedArguments.values, [["-b", "com.todesktop.230313mzl4w4u92"]])
     }
 
+    func testCursorJumpDoesNotInvokeWorkspaceCLIWhenAppIsAlreadyRunning() throws {
+        // Regression guard: `code -r <path>` against a running VS Code family
+        // editor silently reuses the currently focused window when the target
+        // workspace is not already open — which overwrites whatever worktree
+        // the user was editing. When the app is running we must never call
+        // the CLI, regardless of whether it *would* have succeeded.
+        let openedArguments = OpenedArgumentsBox()
+        let processInvocations = ProcessInvocationBox()
+        let service = TerminalJumpService(
+            applicationResolver: { bundleIdentifier in
+                bundleIdentifier == "com.todesktop.230313mzl4w4u92" ? URL(fileURLWithPath: "/Applications/Cursor.app") : nil
+            },
+            appRunningChecker: { bundleIdentifier in
+                bundleIdentifier == "com.todesktop.230313mzl4w4u92"
+            },
+            openAction: { arguments in
+                openedArguments.values.append(arguments)
+            },
+            appleScriptRunner: { _ in "" },
+            processRunner: { executable, arguments in
+                processInvocations.values.append((executable, arguments))
+                return true
+            }
+        )
+
+        let result = try service.jump(
+            to: JumpTarget(
+                terminalApp: "Cursor",
+                workspaceName: "open-vibe-island",
+                paneTitle: "Cursor abc123",
+                workingDirectory: "/Users/test/open-vibe-island"
+            )
+        )
+
+        XCTAssertEqual(result, "Activated Cursor.")
+        XCTAssertEqual(openedArguments.values, [["-b", "com.todesktop.230313mzl4w4u92"]])
+        XCTAssertTrue(processInvocations.values.isEmpty, "code -r must not be invoked while Cursor is running")
+    }
+
     func testCursorJumpFallsBackToWorkspaceWhenAppNotRunning() throws {
         let openedArguments = OpenedArgumentsBox()
         let service = TerminalJumpService(
@@ -177,6 +236,83 @@ final class TerminalJumpServiceTests: XCTestCase {
 
         XCTAssertEqual(result, "Focused the matching Cursor workspace.")
         XCTAssertTrue(openedArguments.values.isEmpty)
+    }
+
+    func testJetBrainsJumpFocusesMatchingRunningWindowBeforeCLIReopen() throws {
+        let openedArguments = OpenedArgumentsBox()
+        let processInvocations = ProcessInvocationBox()
+        let focusedTargets = ProcessInvocationBox()
+        let service = TerminalJumpService(
+            applicationResolver: { bundleIdentifier in
+                bundleIdentifier == "com.jetbrains.intellij" ? URL(fileURLWithPath: "/Applications/IntelliJ IDEA.app") : nil
+            },
+            appRunningChecker: { bundleIdentifier in
+                bundleIdentifier == "com.jetbrains.intellij"
+            },
+            openAction: { arguments in
+                openedArguments.values.append(arguments)
+            },
+            appleScriptRunner: { _ in "" },
+            processRunner: { executable, arguments in
+                processInvocations.values.append((executable, arguments))
+                return true
+            },
+            jetBrainsWindowFocuser: { bundleIdentifier, target in
+                focusedTargets.values.append((bundleIdentifier, [target.workspaceName, target.workingDirectory ?? ""]))
+                return true
+            }
+        )
+
+        let result = try service.jump(
+            to: JumpTarget(
+                terminalApp: "IntelliJ IDEA",
+                workspaceName: "open-vibe-island",
+                paneTitle: "Codex abc12345",
+                workingDirectory: "/Users/test/open-vibe-island"
+            )
+        )
+
+        XCTAssertEqual(result, "Focused the matching IntelliJ IDEA window.")
+        XCTAssertEqual(focusedTargets.values.count, 1)
+        XCTAssertTrue(openedArguments.values.isEmpty)
+        XCTAssertTrue(processInvocations.values.isEmpty)
+    }
+
+    func testJetBrainsJumpFallsBackToProjectLauncherWhenNoWindowMatches() throws {
+        let openedArguments = OpenedArgumentsBox()
+        let processInvocations = ProcessInvocationBox()
+        let service = TerminalJumpService(
+            applicationResolver: { bundleIdentifier in
+                bundleIdentifier == "com.jetbrains.intellij" ? URL(fileURLWithPath: "/Applications/IntelliJ IDEA.app") : nil
+            },
+            appRunningChecker: { bundleIdentifier in
+                bundleIdentifier == "com.jetbrains.intellij"
+            },
+            openAction: { arguments in
+                openedArguments.values.append(arguments)
+            },
+            appleScriptRunner: { _ in "" },
+            processRunner: { executable, arguments in
+                processInvocations.values.append((executable, arguments))
+                return true
+            },
+            jetBrainsWindowFocuser: { _, _ in false }
+        )
+
+        let result = try service.jump(
+            to: JumpTarget(
+                terminalApp: "IntelliJ IDEA",
+                workspaceName: "open-vibe-island",
+                paneTitle: "Codex abc12345",
+                workingDirectory: "/Users/test/open-vibe-island"
+            )
+        )
+
+        XCTAssertEqual(result, "Focused the matching IntelliJ IDEA project.")
+        XCTAssertTrue(openedArguments.values.isEmpty)
+        XCTAssertEqual(processInvocations.values.count, 1)
+        XCTAssertEqual(processInvocations.values.first?.0, "idea")
+        XCTAssertEqual(processInvocations.values.first?.1, ["/Users/test/open-vibe-island"])
     }
 
     func testWarpJumpReturnsImmediatelyWhenAlreadyOnTargetPane() throws {

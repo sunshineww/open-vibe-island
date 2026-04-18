@@ -156,13 +156,11 @@ struct TerminalJumpTargetResolver {
             }
         }
 
-        // Pass 2: working directory match.
+        // Pass 2: pane title match.
         for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
-            let snapshotCWD = normalizedPathForMatching(snapshot.workingDirectory)
             if let session = sessions.first(where: {
                 !claimedSessionIDs.contains($0.id)
-                    && snapshotCWD != nil
-                    && normalizedPathForMatching($0.jumpTarget?.workingDirectory) == snapshotCWD
+                    && nonEmptyValue($0.jumpTarget?.paneTitle).map { snapshot.title.contains($0) } == true
             }) {
                 assignments[session.id] = snapshot
                 claimedSessionIDs.insert(session.id)
@@ -170,11 +168,13 @@ struct TerminalJumpTargetResolver {
             }
         }
 
-        // Pass 3: pane title match.
+        // Pass 3: working directory match.
         for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
+            let snapshotCWD = normalizedPathForMatching(snapshot.workingDirectory)
             if let session = sessions.first(where: {
                 !claimedSessionIDs.contains($0.id)
-                    && nonEmptyValue($0.jumpTarget?.paneTitle).map { snapshot.title.contains($0) } == true
+                    && snapshotCWD != nil
+                    && normalizedPathForMatching($0.jumpTarget?.workingDirectory) == snapshotCWD
             }) {
                 assignments[session.id] = snapshot
                 claimedSessionIDs.insert(session.id)
