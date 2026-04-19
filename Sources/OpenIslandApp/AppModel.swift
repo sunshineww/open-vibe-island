@@ -1261,6 +1261,17 @@ final class AppModel {
             return
         }
 
+        // Approval/question prompts bypass suppressFrontmostNotifications —
+        // these surfaces are only resolvable from the island, so the user
+        // needs the card to appear even when the session's terminal is
+        // already frontmost.
+        if session.phase.requiresAttention {
+            notificationPresentationTask?.cancel()
+            notificationPresentationTask = nil
+            presentNotificationSurface(surface)
+            return
+        }
+
         guard suppressFrontmostNotifications else {
             presentNotificationSurface(surface)
             return
