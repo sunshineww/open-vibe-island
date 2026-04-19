@@ -53,6 +53,9 @@ final class SessionDiscoveryCoordinator {
     private let claudeTranscriptDiscovery = ClaudeTranscriptDiscovery()
 
     @ObservationIgnored
+    let claudeInterruptWatcher = ClaudeTranscriptInterruptWatcher()
+
+    @ObservationIgnored
     private var codexSessionPersistenceTask: Task<Void, Never>?
 
     @ObservationIgnored
@@ -154,6 +157,7 @@ final class SessionDiscoveryCoordinator {
 
         // Sync rollout tracking with current sessions.
         refreshCodexRolloutTracking()
+        refreshClaudeInterruptWatching()
     }
 
     // MARK: - Merge & discovery
@@ -335,6 +339,30 @@ final class SessionDiscoveryCoordinator {
         codexRolloutWatcher.sync(targets: targets)
     }
 
+    // MARK: - Claude interrupt watching
+
+    /// Keep the Claude transcript interrupt watcher in sync with the
+    /// currently running Claude sessions. Claude Code fires no hook on
+    /// user Esc, so we tail each live session's JSONL for the
+    /// interrupt sentinel and route it to `.interrupted` in near
+    /// real-time.
+    func refreshClaudeInterruptWatching() {
+        let targets = state.sessions.compactMap { session -> ClaudeTranscriptInterruptTarget? in
+            guard session.tool == .claudeCode,
+                  session.phase == .running,
+                  let transcriptPath = session.claudeMetadata?.transcriptPath,
+                  !transcriptPath.isEmpty else {
+                return nil
+            }
+            return ClaudeTranscriptInterruptTarget(
+                sessionID: session.id,
+                transcriptPath: transcriptPath
+            )
+        }
+
+        claudeInterruptWatcher.sync(targets: targets)
+    }
+
     // MARK: - Codex.app periodic re-discovery
 
     @ObservationIgnored
@@ -394,6 +422,7 @@ final class SessionDiscoveryCoordinator {
         let merged = mergeDiscoveredSessions(newSessions)
         state = SessionState(sessions: merged)
         refreshCodexRolloutTracking()
+        refreshClaudeInterruptWatching()
         scheduleCodexSessionPersistence()
         onStatusMessage?("Discovered \(newRecords.count) new Codex.app session(s) via rollout re-scan.")
     }

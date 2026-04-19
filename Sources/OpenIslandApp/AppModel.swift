@@ -575,6 +575,12 @@ final class AppModel {
             }
         }
 
+        discovery.claudeInterruptWatcher.onInterrupt = { [weak self] sessionID in
+            Task { @MainActor [weak self] in
+                self?.handleClaudeTranscriptInterrupt(sessionID: sessionID)
+            }
+        }
+
         codexAppServer.onEvent = { [weak self] event in
             self?.applyTrackedEvent(event, ingress: .bridge)
         }
@@ -1178,6 +1184,33 @@ final class AppModel {
         return .deny(message: "Permission denied in Open Island.", interrupt: false)
     }
 
+    /// Called from the Claude transcript watcher when a user-interrupt
+    /// sentinel (`[Request interrupted by user for tool use]`) is
+    /// detected in a live session's JSONL. Claude Code fires no hook
+    /// for Esc, so this file-level signal is our only real-time route
+    /// to `.interrupted`. We only honour it while the session is still
+    /// `.running` — otherwise the sentinel is historical.
+    func handleClaudeTranscriptInterrupt(sessionID: String) {
+        guard let session = state.session(id: sessionID),
+              session.tool == .claudeCode,
+              session.phase == .running else {
+            return
+        }
+
+        applyTrackedEvent(
+            .sessionCompleted(
+                SessionCompleted(
+                    sessionID: sessionID,
+                    summary: "Interrupted by user.",
+                    timestamp: .now,
+                    isInterrupt: true
+                )
+            ),
+            updateLastActionMessage: false,
+            ingress: .rollout
+        )
+    }
+
     func applyTrackedEvent(
         _ event: AgentEvent,
         updateLastActionMessage: Bool = true,
@@ -1211,6 +1244,7 @@ final class AppModel {
         }
         synchronizeSelection()
         discovery.refreshCodexRolloutTracking()
+        discovery.refreshClaudeInterruptWatching()
         refreshOverlayPlacementIfVisible()
         discovery.scheduleCodexSessionPersistence()
         discovery.scheduleClaudeSessionPersistence()

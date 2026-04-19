@@ -590,55 +590,28 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
 
-            // Esc-interrupt detection. Claude Code fires *no* hook when
-            // the user aborts a tool call: query.ts bails out at
-            // `aborted_tools` before Stop/StopFailure/PostToolUse*
-            // dispatch (2.1.87: query.ts:1515). The only way we learn
-            // the prior turn was killed is when the next UserPromptSubmit
-            // arrives while we still have orphaned in-flight tool
-            // contexts for this session. Flip phase to `.interrupted`
-            // for one cycle so the island surfaces the Esc, then the
-            // `.running` transition below progresses the new turn.
+            // If the session had in-flight tool contexts from a prior
+            // turn, drop them now — those tools were Esc'd and will
+            // never fire `PostToolUse` / `PostToolUseFailure`. The
+            // real-time `ClaudeTranscriptInterruptWatcher` already
+            // routed the session to `.interrupted` via the transcript
+            // sentinel, so we just need to clean up bookkeeping and
+            // progress the new turn normally.
             let sessionKeyPrefix = "\(payload.sessionID)|"
-            let orphanedToolKeys = pendingClaudeToolContexts.keys.filter {
-                $0.hasPrefix(sessionKeyPrefix)
-            }
-            let wasInterrupted = !orphanedToolKeys.isEmpty
-            if wasInterrupted {
-                for key in orphanedToolKeys {
-                    pendingClaudeToolContexts.removeValue(forKey: key)
-                }
-                emit(
-                    .sessionCompleted(
-                        SessionCompleted(
-                            sessionID: payload.sessionID,
-                            summary: "Interrupted by user.",
-                            timestamp: .now,
-                            isInterrupt: true
-                        )
-                    )
-                )
+            for key in pendingClaudeToolContexts.keys where key.hasPrefix(sessionKeyPrefix) {
+                pendingClaudeToolContexts.removeValue(forKey: key)
             }
 
-            // When we just flashed `.interrupted`, hold that phase so
-            // the user can see the orange red-bar scout. The next real
-            // turn activity (PreToolUse, PostToolUse, or a new
-            // assistant message surfaced by the transcript watcher)
-            // will naturally flip the session back to `.running`.
-            // Skipping the running-transition here avoids overwriting
-            // the interrupt signal within the same event loop tick.
-            if !wasInterrupted {
-                emit(
-                    .activityUpdated(
-                        SessionActivityUpdated(
-                            sessionID: payload.sessionID,
-                            summary: payload.promptPreview.map { "Prompt: \($0)" } ?? payload.implicitStartSummary,
-                            phase: .running,
-                            timestamp: .now
-                        )
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: payload.promptPreview.map { "Prompt: \($0)" } ?? payload.implicitStartSummary,
+                        phase: .running,
+                        timestamp: .now
                     )
                 )
-            }
+            )
             send(.response(.acknowledged), to: clientID)
 
         case .preToolUse:
