@@ -2,7 +2,6 @@ import Foundation
 
 public enum CodexHookEventName: String, Codable, Sendable {
     case sessionStart = "SessionStart"
-    case preToolUse = "PreToolUse"
     case postToolUse = "PostToolUse"
     case userPromptSubmit = "UserPromptSubmit"
     case permissionRequest = "PermissionRequest"
@@ -226,19 +225,14 @@ public enum CodexHookDirective: Equatable, Codable, Sendable {
 }
 
 public enum CodexHookOutputEncoder {
-    private struct LegacyBlockOutput: Codable {
-        var decision = "block"
-        var reason: String
-    }
-
     /// Shape documented at openai/codex `codex-rs/hooks/src/schema.rs`:
     /// ```
     /// { "hookSpecificOutput": { "hookEventName": "PermissionRequest",
     ///   "decision": { "behavior": "allow" | "deny", "message": "..." } } }
     /// ```
-    /// For `PermissionRequest` hook, codex honors `allow` to skip its
-    /// terminal y/n prompt; empty stdout is treated as `None` and codex
-    /// falls back to the terminal prompt (which would show duplicate UI).
+    /// Codex honors `allow` to skip its terminal y/n prompt; empty stdout
+    /// is treated as `None` and codex falls back to the terminal prompt
+    /// (which would show duplicate UI).
     private struct PermissionRequestOutput: Codable {
         struct HookSpecificOutput: Codable {
             struct Decision: Codable {
@@ -271,37 +265,22 @@ public enum CodexHookOutputEncoder {
         }
     }
 
-    public static func standardOutput(
-        for response: BridgeResponse,
-        hookEventName: CodexHookEventName
-    ) throws -> Data? {
+    public static func standardOutput(for response: BridgeResponse) throws -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
         switch response {
         case .acknowledged:
-            // PermissionRequest treats absent stdout as `None` and falls back
-            // to the terminal approval prompt (= double UI). Explicitly emit
-            // `allow` so codex short-circuits its prompt. Other events can
-            // stay silent — ack means "nothing to say".
-            guard hookEventName == .permissionRequest else {
-                return nil
-            }
+            // Only PermissionRequest reaches this path today (CodexHookInstaller
+            // no longer installs PreToolUse). An absent stdout would be treated
+            // as `None` by codex and fall back to the terminal prompt — emit
+            // an explicit `allow` envelope to short-circuit.
             return try appendNewline(encoder.encode(PermissionRequestOutput.allow()))
         case let .codexHookDirective(directive):
-            let data: Data
-
             switch directive {
             case let .deny(reason):
-                if hookEventName == .permissionRequest {
-                    data = try encoder.encode(PermissionRequestOutput.deny(message: reason))
-                } else {
-                    // Legacy PreToolUse block schema — still accepted by codex.
-                    data = try encoder.encode(LegacyBlockOutput(reason: reason))
-                }
+                return try appendNewline(encoder.encode(PermissionRequestOutput.deny(message: reason)))
             }
-
-            return appendNewline(data)
         case .claudeHookDirective:
             return nil
         case .openCodeHookDirective:
@@ -365,8 +344,6 @@ public extension CodexHookPayload {
             }
 
             return "Started Codex session in \(workspaceName)."
-        case .preToolUse:
-            return "Codex is preparing a Bash command in \(workspaceName)."
         case .postToolUse:
             return "Codex reported a Bash result in \(workspaceName)."
         case .userPromptSubmit:

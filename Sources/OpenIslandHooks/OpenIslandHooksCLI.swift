@@ -49,7 +49,7 @@ struct OpenIslandHooksCLI {
 
                 let timeout: TimeInterval
                 switch payload.hookEventName {
-                case .preToolUse, .permissionRequest:
+                case .permissionRequest:
                     timeout = Self.interactiveHookTimeout
                 case .sessionStart, .userPromptSubmit, .postToolUse, .stop:
                     timeout = Self.standardHookTimeout
@@ -79,10 +79,7 @@ struct OpenIslandHooksCLI {
                             ]
                         )
 
-                        if let output = try CodexHookOutputEncoder.standardOutput(
-                            for: response,
-                            hookEventName: payload.hookEventName
-                        ) {
+                        if let output = try CodexHookOutputEncoder.standardOutput(for: response) {
                             FileHandle.standardOutput.write(output)
                         }
                     } else {

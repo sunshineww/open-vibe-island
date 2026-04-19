@@ -422,7 +422,7 @@ struct SessionStateTests {
     }
 
     @Test
-    func codexPreToolUseWaitsForApprovalAndReturnsDenyDirective() async throws {
+    func codexPermissionRequestWaitsForApprovalAndReturnsDenyDirective() async throws {
         let socketURL = BridgeSocketLocation.uniqueTestURL()
         let server = BridgeServer(socketURL: socketURL)
         try server.start()
@@ -435,7 +435,7 @@ struct SessionStateTests {
 
         let payload = CodexHookPayload(
             cwd: "/tmp/worktree",
-            hookEventName: .preToolUse,
+            hookEventName: .permissionRequest,
             model: "gpt-5-codex",
             permissionMode: .default,
             sessionID: "codex-session-1",
@@ -462,7 +462,7 @@ struct SessionStateTests {
     }
 
     @Test
-    func codexPreToolUseStillRequiresResolutionWhenHookArrivesInDontAskMode() async throws {
+    func codexPermissionRequestStillRequiresResolutionWhenHookArrivesInDontAskMode() async throws {
         let socketURL = BridgeSocketLocation.uniqueTestURL()
         let server = BridgeServer(socketURL: socketURL)
         try server.start()
@@ -475,7 +475,7 @@ struct SessionStateTests {
 
         let payload = CodexHookPayload(
             cwd: "/tmp/worktree",
-            hookEventName: .preToolUse,
+            hookEventName: .permissionRequest,
             model: "gpt-5-codex",
             permissionMode: .dontAsk,
             sessionID: "codex-session-no-ask",
@@ -911,7 +911,7 @@ struct SessionStateTests {
         #expect(atPrompt.terminalTitle == "codex ~/tmp/worktree")
 
         let atTool = CodexHookPayload(
-            cwd: "/tmp/worktree", hookEventName: .preToolUse,
+            cwd: "/tmp/worktree", hookEventName: .permissionRequest,
             model: "gpt-5-codex", permissionMode: .default, sessionID: "s1", transcriptPath: nil
         ).withRuntimeContext(
             environment: env, currentTTYProvider: ttyProvider,
