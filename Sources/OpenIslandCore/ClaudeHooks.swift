@@ -324,6 +324,7 @@ public enum ClaudeHookEventName: String, Codable, Sendable {
     case subagentStart = "SubagentStart"
     case subagentStop = "SubagentStop"
     case preCompact = "PreCompact"
+    case postCompact = "PostCompact"
 }
 
 public enum ClaudeSessionStartSource: String, Codable, Sendable {
@@ -751,6 +752,8 @@ public extension ClaudeHookPayload {
             return "\(agent) finished a subagent in \(workspaceName)."
         case .preCompact:
             return "\(agent) is compacting the conversation in \(workspaceName)."
+        case .postCompact:
+            return "\(agent) finished compacting the conversation in \(workspaceName)."
         case .sessionEnd:
             return "\(agent) session ended in \(workspaceName)."
         }

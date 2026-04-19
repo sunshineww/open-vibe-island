@@ -939,6 +939,38 @@ public final class BridgeServer: @unchecked Sendable {
             )
             send(.response(.acknowledged), to: clientID)
 
+        case .postCompact:
+            // Pair with `.preCompact` — clear the `__compacting__`
+            // pseudo-tool so the scout icon leaves the hourglass frame
+            // and returns to thinking/idle. Without this the scout would
+            // spin on the hourglass until the next tool call fired.
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: "\(payload.resolvedAgentTool.displayName) finished compacting.",
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            emit(
+                .claudeSessionMetadataUpdated(
+                    ClaudeSessionMetadataUpdated(
+                        sessionID: payload.sessionID,
+                        claudeMetadata: ClaudeSessionMetadata(
+                            currentTool: nil
+                        ),
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
         case .sessionEnd:
             clearStaleClaudeInteractionIfNeeded(for: payload.sessionID)
             ensureClaudeSessionExists(for: payload)
@@ -2240,7 +2272,7 @@ public final class BridgeServer: @unchecked Sendable {
         switch hookEventName {
         case .postToolUse, .postToolUseFailure, .permissionDenied, .stop, .stopFailure, .sessionEnd:
             return nil
-        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact:
+        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact, .postCompact:
             return existing
         }
     }
@@ -2257,7 +2289,7 @@ public final class BridgeServer: @unchecked Sendable {
         switch hookEventName {
         case .postToolUse, .postToolUseFailure, .permissionDenied, .stop, .stopFailure, .sessionEnd:
             return nil
-        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact:
+        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact, .postCompact:
             return existing
         }
     }
