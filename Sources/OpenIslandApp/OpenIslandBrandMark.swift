@@ -235,40 +235,42 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 8. Completed: Crowned champion scout (frame A) ──
+    // ── 8. Completed: Cheering scout with both arms raised (frame A) ──
     //
-    // Iteration 3 on the "done" sprite. The first attempt (trophy) was
-    // unreadable at 14 px; the second (round smiley) collided visually
-    // with the failed frown and the idle invader. This version stamps a
-    // three-pointed crown onto the sprite — that silhouette is unique
-    // across the full scout set, so "session won" is unmistakable at a
-    // glance. The green (G) pixels carve a smiling mouth underneath.
+    // Iteration 4 on the "done" sprite. Trophy read as idle; round
+    // smiley collided with the failed frown; crown looked royal rather
+    // than victorious. This version freezes the scout mid-celebration
+    // with both arms thrown up in a V — the universal "I did it!"
+    // posture. The head is centered (not touching the top row) so the
+    // outline reads as arms + body, distinct from every other sprite.
+    // Green (G) pixels still carve a smile so the happy semantics are
+    // obvious even before the tint lands.
     private static let completedFrameA: [String] = [
-        ".B.BB.B.",
-        "BBBBBBBB",
+        "B......B",
+        ".BB..BB.",
+        "..BBBB..",
+        ".BBBBBB.",
         "BBEBBEBB",
         "BBHHHHBB",
         "B.HGGH.B",
-        "B..GG..B",
-        ".BBBBBB.",
-        "..BBBB..",
+        ".B.BB.B.",
     ]
 
-    // ── 8. Completed: Crowned champion scout (frame B — reserved) ──
+    // ── 8. Completed: Cheering scout (frame B — reserved) ──
     //
-    // The completed phase is static (`isAnimated == false`), so frame B
-    // is never displayed; it is kept identical to frame A so that if we
-    // later add a one-shot celebration animation the data pipeline is
-    // ready without touching the renderer.
+    // Completed is static (`isAnimated == false`) so frame B is never
+    // rendered. It mirrors frame A so that a future one-shot celebration
+    // animation can toggle between "arms up" and "arms a touch lower"
+    // without touching the renderer.
     private static let completedFrameB: [String] = [
-        ".B.BB.B.",
-        "BBBBBBBB",
+        "B......B",
+        ".BB..BB.",
+        "..BBBB..",
+        ".BBBBBB.",
         "BBEBBEBB",
         "BBHHHHBB",
         "B.HGGH.B",
-        "B..GG..B",
-        ".BBBBBB.",
-        "..BBBB..",
+        ".B.BB.B.",
     ]
 
     // ── 9. Compacting: Hourglass (frame A — sand on top) ──
