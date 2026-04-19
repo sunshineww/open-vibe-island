@@ -128,6 +128,24 @@ struct ActiveAgentProcessDiscovery {
                     terminalTTY: process.terminalTTY,
                     terminalApp: terminalApp(for: process, processesByPID: processesByPID)
                 ))
+                continue
+            }
+
+            if isKimiProcess(command: process.command) {
+                let claimKey = "kimi:\(process.pid)"
+                guard claimedKeys.insert(claimKey).inserted else {
+                    continue
+                }
+
+                let lsofOutput = lsofOutput(pid: process.pid)
+                snapshots.append(ProcessSnapshot(
+                    tool: .kimiCLI,
+                    sessionID: nil,
+                    workingDirectory: lsofOutput.flatMap(workingDirectory(from:)),
+                    terminalTTY: process.terminalTTY,
+                    terminalApp: terminalApp(for: process, processesByPID: processesByPID)
+                ))
+                continue
             }
         }
 
@@ -312,6 +330,10 @@ struct ActiveAgentProcessDiscovery {
 
     private func recognizedTerminalApp(for command: String) -> String? {
         let lowered = command.lowercased()
+
+        if lowered.contains("/codex.app/contents/macos/") {
+            return "Codex.app"
+        }
 
         if lowered.contains("/cmux.app/contents/macos/cmux") {
             return "cmux"
@@ -530,17 +552,38 @@ struct ActiveAgentProcessDiscovery {
             || lowered.contains("/@google/gemini-cli")
     }
 
+    /// Matches the `kimi` CLI (Moonshot) entry-point. `kimi-info` / `kimi-mcp` /
+    /// `kimi-term` / `kimi-vis` / `kimi-web` are auxiliary subcommands shipped
+    /// alongside the main binary and must not be picked up as agent sessions.
+    private func isKimiProcess(command: String) -> Bool {
+        let lowered = command.lowercased()
+        guard let firstToken = lowered.split(separator: " ").first.map(String.init) else {
+            return false
+        }
+
+        let binaryName = (firstToken as NSString).lastPathComponent
+        guard binaryName == "kimi" else {
+            return false
+        }
+
+        return firstToken == "kimi" || firstToken.hasSuffix("/kimi")
+    }
+
+    /// Returns `true` when the given `ps` command string belongs to a Claude Code process.
+    /// Matches the official `~/.local/bin/claude` path as well as any absolute path whose
+    /// last component is `claude` (e.g. `~/.codefuse/.../claude`).
     private func isClaudeProcess(command: String) -> Bool {
         let lowered = command.lowercased()
         if lowered.contains("/.local/bin/claude") {
             return true
         }
 
-        guard let firstToken = lowered.split(separator: " ").first else {
+        guard let firstToken = lowered.split(separator: " ").first.map(String.init) else {
             return false
         }
 
         return firstToken == "claude"
+            || firstToken.hasSuffix("/claude")
     }
 
     private static func commandOutput(executablePath: String, arguments: [String]) -> String? {

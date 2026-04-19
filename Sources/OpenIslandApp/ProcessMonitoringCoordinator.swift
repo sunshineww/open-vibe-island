@@ -25,6 +25,10 @@ final class ProcessMonitoringCoordinator {
     @ObservationIgnored
     var onPersistenceNeeded: (() -> Void)?
 
+    /// Fires when Codex.app is detected as running / no longer running.
+    @ObservationIgnored
+    var onCodexAppRunningChanged: ((_ isRunning: Bool) -> Void)?
+
     @ObservationIgnored
     let activeAgentProcessDiscovery = ActiveAgentProcessDiscovery()
 
@@ -36,6 +40,9 @@ final class ProcessMonitoringCoordinator {
 
     @ObservationIgnored
     private var sessionAttachmentMonitorTask: Task<Void, Never>?
+
+    @ObservationIgnored
+    private var wasCodexAppRunning = false
 
     private var state: SessionState {
         get { stateAccessor?() ?? SessionState() }
@@ -108,6 +115,16 @@ final class ProcessMonitoringCoordinator {
         // Adopt process TTYs inline on local copy.
         adoptProcessTTYsForClaudeSessions(activeProcesses: activeProcesses, sessions: &local)
 
+        // Detect Codex.app running state BEFORE the empty-sessions early
+        // return — we need to fire the callback on a brand-new Codex.app
+        // launch even when no sessions exist yet, so the app-server
+        // coordinator can connect and report threads.
+        let isCodexAppRunning = Self.isCodexDesktopAppRunning()
+        if isCodexAppRunning != wasCodexAppRunning {
+            wasCodexAppRunning = isCodexAppRunning
+            onCodexAppRunningChanged?(isCodexAppRunning)
+        }
+
         let sessions = local.sessions.filter(\.isTrackedLiveSession)
         guard !sessions.isEmpty else {
             // Flush local changes only if something actually changed.
@@ -147,7 +164,10 @@ final class ProcessMonitoringCoordinator {
 
         // Phase 1: populate isProcessAlive in parallel with existing system.
         let aliveIDs = sessionIDsWithAliveProcesses(activeProcesses: activeProcesses)
-        _ = local.markProcessLiveness(aliveSessionIDs: aliveIDs)
+        _ = local.markProcessLiveness(
+            aliveSessionIDs: aliveIDs,
+            isCodexAppRunning: isCodexAppRunning
+        )
 
         // Resolve jump targets via the new focused resolver.
         // When pre-resolved targets are provided (computed off-main-actor),
@@ -243,14 +263,18 @@ final class ProcessMonitoringCoordinator {
         var aliveIDs: Set<String> = []
         let sessions = state.sessions
 
-        // Codex sessions: match by session ID directly.
+        // Codex CLI sessions: match by session ID directly.
         let codexProcessIDs = Set(
             activeProcesses
                 .filter { $0.tool == .codex }
                 .compactMap(\.sessionID)
         )
+        // Codex.app sessions: keep alive while the desktop app is running.
+        let isCodexAppRunning = Self.isCodexDesktopAppRunning()
         for session in sessions where session.tool == .codex && !session.isDemoSession {
-            if codexProcessIDs.contains(session.id) {
+            if session.isCodexAppSession {
+                if isCodexAppRunning { aliveIDs.insert(session.id) }
+            } else if codexProcessIDs.contains(session.id) {
                 aliveIDs.insert(session.id)
             }
         }
@@ -320,6 +344,18 @@ final class ProcessMonitoringCoordinator {
             }
             aliveIDs.insert(matched.id)
             claimedGeminiSessionIDs.insert(matched.id)
+        }
+
+        // Kimi sessions are hook-managed and use UUIDs that Open Island cannot
+        // recover from ps/lsof. As long as any kimi process exists, keep every
+        // tracked Kimi session alive so Stop/completed sessions don't get
+        // evicted by the hook-managed liveness fallback in
+        // SessionState.markProcessLiveness.
+        let hasKimiProcess = activeProcesses.contains { $0.tool == .kimiCLI }
+        if hasKimiProcess {
+            for session in sessions where session.tool == .kimiCLI && !session.isDemoSession {
+                aliveIDs.insert(session.id)
+            }
         }
 
         // Cursor sessions: Cursor is an Electron IDE — we cannot match
@@ -725,6 +761,19 @@ final class ProcessMonitoringCoordinator {
 
     // MARK: - Utilities
 
+    /// Check whether Codex.app is currently running.  Uses
+    /// `NSWorkspace.shared.runningApplications` directly because
+    /// `NSRunningApplication.runningApplications(withBundleIdentifier:)`
+    /// has been observed to intermittently return an empty array even
+    /// when the app is running (likely a brief indexing window after
+    /// app launch / conversation switch), which would cause Open Island
+    /// to incorrectly kill visible Codex sessions.
+    static func isCodexDesktopAppRunning() -> Bool {
+        NSWorkspace.shared.runningApplications.contains { app in
+            app.bundleIdentifier == "com.openai.codex"
+        }
+    }
+
     private func processIdentityKey(_ process: ActiveProcessSnapshot) -> String {
         [
             process.sessionID,
@@ -869,6 +918,8 @@ final class ProcessMonitoringCoordinator {
             return "CodeBuddy \(session.id.prefix(8))"
         case .cursor:
             return "Cursor \(session.id.prefix(8))"
+        case .kimiCLI:
+            return "Kimi \(session.id.prefix(8))"
         }
     }
 }
