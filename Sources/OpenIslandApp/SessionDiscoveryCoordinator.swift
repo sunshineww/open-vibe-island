@@ -226,7 +226,7 @@ final class SessionDiscoveryCoordinator {
 
         merged.origin = existing.origin ?? discovered.origin
         merged.attachmentState = mergeAttachmentState(existing.attachmentState, discovered.attachmentState)
-        merged.jumpTarget = existing.jumpTarget ?? discovered.jumpTarget
+        merged.jumpTarget = mergeJumpTarget(existing.jumpTarget, discovered.jumpTarget)
         merged.codexMetadata = mergeCodexMetadata(existing.codexMetadata, discovered.codexMetadata)
         merged.claudeMetadata = mergeClaudeMetadata(existing.claudeMetadata, discovered.claudeMetadata)
         merged.openCodeMetadata = mergeOpenCodeMetadata(existing.openCodeMetadata, discovered.openCodeMetadata)
@@ -260,6 +260,17 @@ final class SessionDiscoveryCoordinator {
             model: discovered.model ?? existing.model
         )
         return merged.isEmpty ? nil : merged
+    }
+
+    private func mergeJumpTarget(_ existing: JumpTarget?, _ discovered: JumpTarget?) -> JumpTarget? {
+        guard let existing else { return discovered }
+        guard let discovered else { return existing }
+        // Prefer discovered if it has a real terminal (covers resume in new terminal)
+        // Only keep existing when discovered is "Unknown" and existing is known
+        if discovered.terminalApp != "Unknown" {
+            return discovered
+        }
+        return existing
     }
 
     private func mergeCursorMetadata(

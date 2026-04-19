@@ -154,7 +154,16 @@ public struct SessionState: Equatable, Sendable {
                 return
             }
 
-            session.jumpTarget = payload.jumpTarget
+            // Don't overwrite a known terminal app with "Unknown"
+            if payload.jumpTarget.terminalApp == "Unknown",
+               let existing = session.jumpTarget,
+               existing.terminalApp != "Unknown" {
+                var updated = payload.jumpTarget
+                updated.terminalApp = existing.terminalApp
+                session.jumpTarget = updated
+            } else {
+                session.jumpTarget = payload.jumpTarget
+            }
             session.updatedAt = payload.timestamp
             Self.refreshCodexAppClassification(for: &session)
             upsert(session)

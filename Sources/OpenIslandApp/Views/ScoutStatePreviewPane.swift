@@ -4,7 +4,7 @@ struct ScoutStatePreviewPane: View {
     var model: AppModel
 
     private let states: [(label: String, toolLabel: String?, phase: OpenIslandBrandMark.ScoutPhase, tint: Color)] = [
-        ("Idle", nil, .idle, .mint),
+        ("Idle", nil, .idle, .mint),                                                     // 薄荷绿
         ("Thinking", nil, .thinking, Color(red: 0.43, green: 0.62, blue: 1.0)),       // 蓝色
         ("Coding", "Edit", .coding, Color(red: 0.0, green: 0.8, blue: 0.85)),         // 青色
         ("Command", "Bash", .runningCommand, Color(red: 0.65, green: 0.45, blue: 1.0)), // 紫色
@@ -13,6 +13,8 @@ struct ScoutStatePreviewPane: View {
         ("Answer", nil, .waitingForAnswer, .yellow),                                    // 黄色
         ("Completed", nil, .completed, .green),                                         // 绿色
         ("Compact", "Compact", .compacting, Color(red: 0.85, green: 0.55, blue: 0.2)),  // 琥珀色
+        ("Input", nil, .waitingForInput, Color(red: 0.5, green: 0.8, blue: 0.5)),      // 柔和绿
+        ("Awaiting", nil, .awaitingPrompt, Color(red: 0.6, green: 0.75, blue: 0.95)),  // 浅蓝
     ]
 
     var body: some View {
