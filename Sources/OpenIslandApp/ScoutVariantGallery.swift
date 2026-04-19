@@ -11,14 +11,12 @@ struct ScoutVariantSpec: Identifiable {
     let label: String
     let frame: [String]
     let tint: Color
-    /// Accent pixel role (`G`) colour override. `.green` for happy states,
-    /// `.red` for failure/interrupt, `nil` to use the default (green).
+    /// Accent pixel role (`G`) colour override. When `nil`, green is used.
     var accent: Color? = nil
 }
 
 /// Renders an 8×8 B/H/E/W/G pattern into a pixel-art sprite without
-/// going through `OpenIslandBrandMark`. Kept intentionally small so the
-/// Lab can draw many candidates side-by-side cheaply.
+/// going through `OpenIslandBrandMark`.
 struct ScoutVariantPixelView: View {
     let frame: [String]
     let size: CGFloat
@@ -60,17 +58,16 @@ struct ScoutVariantPixelView: View {
     private func color(for role: Character) -> Color {
         switch role {
         case "B": return tint.opacity(0.95)
-        case "H": return tint.opacity(0.7)
-        case "E": return Color.black.opacity(0.72)
-        case "W": return tint.opacity(0.5)
-        case "G": return accent.opacity(0.9)
+        case "H": return tint.opacity(0.55)
+        case "E": return Color.black.opacity(0.78)
+        case "W": return Color.white.opacity(0.9)
+        case "G": return accent.opacity(0.95)
+        case "Y": return Color.yellow.opacity(0.95)
         default:  return .clear
         }
     }
 }
 
-/// One row in the Lab: a candidate sprite at notch size (14 px) and a
-/// blown-up preview (48 px) with its label underneath.
 struct ScoutVariantRow: View {
     let spec: ScoutVariantSpec
 
@@ -90,13 +87,11 @@ struct ScoutVariantRow: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.white.opacity(0.85))
                 .multilineTextAlignment(.center)
-                .frame(width: 110)
+                .frame(width: 120)
         }
     }
 }
 
-/// A titled block of candidates for one phase. The Lab stacks several
-/// of these so the user can scan across phases in one view.
 struct ScoutVariantGallery: View {
     let title: String
     let subtitle: String
@@ -128,19 +123,142 @@ struct ScoutVariantGallery: View {
 }
 
 // MARK: - Candidate sprite bank
+//
+// Every candidate is modelled on a *widely recognised* 8-bit / pixel-art
+// icon so the reading is unambiguous at 14 px — trophy, star, ? block,
+// skull, pause bars, etc. Bespoke "scout in a pose" drafts have been
+// removed.
+//
+// Role keys:
+//   B — body (phase tint)
+//   H — highlight (softer tint)
+//   E — dark (outline / shadow / eye hole)
+//   W — bright white (for skull teeth, pause gaps)
+//   G — accent (green for happy, red for failed/interrupted)
+//   Y — yellow (used by the coin / ? block Mario icons)
 
 enum ScoutVariantBank {
-    // ── Completed candidates ─────────────────────────────────────────
-    // The completed phase has gone through several revisions; all prior
-    // drafts live here so the user can compare them directly against new
-    // proposals at real 14 px size instead of imagining what each would
-    // look like. Pick the winner in the Lab, then the chosen frame
-    // graduates into `OpenIslandBrandMark.completedFrameA`.
+
+    // MARK: Completed
 
     static let completedCandidates: [ScoutVariantSpec] = [
+        // 1. Classic cup trophy with two side handles.
+        ScoutVariantSpec(
+            id: "completed.trophy",
+            label: "A · 金奖杯",
+            frame: [
+                ".B....B.",
+                "BBBBBBBB",
+                "BHHHHHHB",
+                "BHHHHHHB",
+                ".BHHHHB.",
+                "..BHHB..",
+                ".BBBBBB.",
+                "..BBBB..",
+            ],
+            tint: .green
+        ),
+        // 2. Five-point star (Mario power-up / "win" star).
+        ScoutVariantSpec(
+            id: "completed.star5",
+            label: "B · 5 角星",
+            frame: [
+                "...BB...",
+                "...BB...",
+                "BBBBBBBB",
+                ".BBBBBB.",
+                "..BBBB..",
+                "..BBBB..",
+                ".BB..BB.",
+                ".B....B.",
+            ],
+            tint: .green
+        ),
+        // 3. Sparkle burst — 4-point diamond star with radial rays.
+        ScoutVariantSpec(
+            id: "completed.sparkle",
+            label: "C · 闪光爆炸",
+            frame: [
+                "...BB...",
+                ".B.BB.B.",
+                "..BBBB..",
+                "BBBBBBBB",
+                "BBBBBBBB",
+                "..BBBB..",
+                ".B.BB.B.",
+                "...BB...",
+            ],
+            tint: .green
+        ),
+        // 4. 1UP mushroom — red cap with white spots in the original,
+        //    rendered here with highlight (H) spots on the tint body.
+        ScoutVariantSpec(
+            id: "completed.mushroom",
+            label: "D · 1UP 蘑菇",
+            frame: [
+                "..BBBB..",
+                ".BBBBBB.",
+                "B.BHHB.B",
+                "BBBBBBBB",
+                "BBHHHHBB",
+                "BBEBBEBB",
+                ".BHHHHB.",
+                "..BBBB..",
+            ],
+            tint: .green
+        ),
+        // 5. Coin — concentric circles with a highlight stripe.
+        ScoutVariantSpec(
+            id: "completed.coin",
+            label: "E · 金币",
+            frame: [
+                "..BBBB..",
+                ".BBHHBB.",
+                "BBBHHBBB",
+                "BBBHHBBB",
+                "BBBHHBBB",
+                "BBBHHBBB",
+                ".BBHHBB.",
+                "..BBBB..",
+            ],
+            tint: .green
+        ),
+        // 6. Medal with ribbon triangle on top.
+        ScoutVariantSpec(
+            id: "completed.medal",
+            label: "F · 奖牌（带缎带）",
+            frame: [
+                ".B....B.",
+                ".BB..BB.",
+                "..BBBB..",
+                ".BBBBBB.",
+                "BBHHHHBB",
+                "BBHHHHBB",
+                ".BBBBBB.",
+                "..BBBB..",
+            ],
+            tint: .green
+        ),
+        // 7. Treasure chest with lid ajar and shine rays.
+        ScoutVariantSpec(
+            id: "completed.chest",
+            label: "G · 宝箱开启",
+            frame: [
+                "...HH...",
+                ".H.BB.H.",
+                ".BBBBBB.",
+                "B......B",
+                "BBBBBBBB",
+                "BEBBBBEB",
+                "BBBBBBBB",
+                ".BBBBBB.",
+            ],
+            tint: .green
+        ),
+        // 8. Current "cheering scout" (kept for fairness).
         ScoutVariantSpec(
             id: "completed.cheering",
-            label: "A · 举手欢呼（当前）",
+            label: "H · 举手欢呼（之前）",
             frame: [
                 "B......B",
                 ".BB..BB.",
@@ -153,119 +271,79 @@ enum ScoutVariantBank {
             ],
             tint: .green
         ),
-        ScoutVariantSpec(
-            id: "completed.trophy",
-            label: "B · 金奖杯",
-            frame: [
-                ".B....B.",
-                "BBBBBBBB",
-                "BHGGGGHB",
-                "BHGGGGHB",
-                ".BHHHHB.",
-                "..BHHB..",
-                ".BBBBBB.",
-                "..BBBB..",
-            ],
-            tint: .green
-        ),
-        ScoutVariantSpec(
-            id: "completed.sparkleSmiley",
-            label: "C · 笑脸+闪光",
-            frame: [
-                "H..BB..H",
-                ".BBBBBB.",
-                "BBEBBEBB",
-                "BBHHHHBB",
-                "B.HGGH.B",
-                "B..GG..B",
-                ".BBBBBB.",
-                "..BBBB..",
-            ],
-            tint: .green
-        ),
-        ScoutVariantSpec(
-            id: "completed.partyHat",
-            label: "D · 派对帽",
-            frame: [
-                "...BB...",
-                "..BGGB..",
-                ".BBBBBB.",
-                "BBEBBEBB",
-                "BBHHHHBB",
-                "B.HGGH.B",
-                ".BBBBBB.",
-                "..BBBB..",
-            ],
-            tint: .green
-        ),
-        ScoutVariantSpec(
-            id: "completed.crown",
-            label: "E · 皇冠笑脸",
-            frame: [
-                ".B.BB.B.",
-                "BBBBBBBB",
-                "BBEBBEBB",
-                "BBHHHHBB",
-                "B.HGGH.B",
-                "B..GG..B",
-                ".BBBBBB.",
-                "..BBBB..",
-            ],
-            tint: .green
-        ),
-        ScoutVariantSpec(
-            id: "completed.medal",
-            label: "F · 胸前奖牌",
-            frame: [
-                "..BBBB..",
-                ".BHEEHB.",
-                ".BHHHHB.",
-                ".BBBBBB.",
-                "B.BGGB.B",
-                "B.BGGB.B",
-                "..BBBB..",
-                ".B....B.",
-            ],
-            tint: .green
-        ),
-        ScoutVariantSpec(
-            id: "completed.flag",
-            label: "G · 举旗到达终点",
-            frame: [
-                "BGGB....",
-                "BGGB....",
-                "BGGBBBB.",
-                "BBBEHEHB",
-                "...BHHB.",
-                "...BBBB.",
-                "...BBBB.",
-                "...B..B.",
-            ],
-            tint: .green
-        ),
-        ScoutVariantSpec(
-            id: "completed.thumbsUp",
-            label: "H · 竖大拇指",
-            frame: [
-                "..BBBB..",
-                ".BHEEHB.",
-                ".BHHHHB.",
-                "..BBBB..",
-                "BBBBBB..",
-                "GBBBBB..",
-                "GBBBBB..",
-                "BBBB....",
-            ],
-            tint: .green
-        ),
     ]
 
-    // ── Approval candidates ──────────────────────────────────────────
+    // MARK: Waiting for Approval
 
     static let approvalCandidates: [ScoutVariantSpec] = [
+        // 1. Classic Mario "!" block — yellow square with a centered mark.
+        ScoutVariantSpec(
+            id: "approval.bangBlock",
+            label: "A · ! 砖块（Mario ! Block）",
+            frame: [
+                "BBBBBBBB",
+                "BHHHHHHB",
+                "BHHEEHHB",
+                "BHHEEHHB",
+                "BHHEEHHB",
+                "BHHHHHHB",
+                "BHHEEHHB",
+                "BBBBBBBB",
+            ],
+            tint: .orange
+        ),
+        // 2. Octagonal STOP sign silhouette.
+        ScoutVariantSpec(
+            id: "approval.stopSign",
+            label: "B · STOP 八边形",
+            frame: [
+                "..BBBB..",
+                ".BBBBBB.",
+                "BBBBBBBB",
+                "BBWWWWBB",
+                "BBWWWWBB",
+                "BBBBBBBB",
+                ".BBBBBB.",
+                "..BBBB..",
+            ],
+            tint: .orange
+        ),
+        // 3. Raised palm (hand signalling "halt").
+        ScoutVariantSpec(
+            id: "approval.palm",
+            label: "C · 手掌 HALT",
+            frame: [
+                "B.B.B.B.",
+                "BBBBBBB.",
+                "BBBBBBB.",
+                "BBBBBBB.",
+                ".BBBBBB.",
+                ".BBBBBB.",
+                ".BBBBBB.",
+                "..BBBB..",
+            ],
+            tint: .orange
+        ),
+        // 4. Heraldic shield — "access control".
+        ScoutVariantSpec(
+            id: "approval.shield",
+            label: "D · 盾牌",
+            frame: [
+                "BBBBBBBB",
+                "BHHHHHHB",
+                "BHHHHHHB",
+                "BHH..HHB",
+                "BHH..HHB",
+                ".BHHHHB.",
+                "..BHHB..",
+                "...BB...",
+            ],
+            tint: .orange
+        ),
+        // 5. Current scout-as-guard (for reference).
         ScoutVariantSpec(
             id: "approval.guard",
-            label: "A · 盾牌守卫（当前）",
+            label: "E · 盾牌守卫（之前）",
             frame: [
                 "..BBBB..",
                 ".BBBBBB.",
@@ -278,59 +356,63 @@ enum ScoutVariantBank {
             ],
             tint: .orange
         ),
-        ScoutVariantSpec(
-            id: "approval.stopHand",
-            label: "B · 举手 STOP",
-            frame: [
-                "...B....",
-                "..BBB...",
-                ".BBBBB..",
-                "..BHB...",
-                "..BBB...",
-                ".BBEEBB.",
-                "BBHHHHBB",
-                ".BBBBBB.",
-            ],
-            tint: .orange
-        ),
-        ScoutVariantSpec(
-            id: "approval.bangBadge",
-            label: "C · 胸前警示 !",
-            frame: [
-                "..BBBB..",
-                ".BBBBBB.",
-                "BBEBBEBB",
-                "BBHHHHBB",
-                ".BBBBBB.",
-                "..BGB...",
-                "..BGB...",
-                "..B.B...",
-            ],
-            tint: .orange
-        ),
-        ScoutVariantSpec(
-            id: "approval.gate",
-            label: "D · 门卫挡住",
-            frame: [
-                "B......B",
-                "BBBBBBBB",
-                "BHEBBEHB",
-                "BHHHHHHB",
-                "B.BBBB.B",
-                "B.BBBB.B",
-                "B......B",
-                "B......B",
-            ],
-            tint: .orange
-        ),
     ]
 
-    // ── Answer candidates ────────────────────────────────────────────
+    // MARK: Waiting for Answer
 
     static let answerCandidates: [ScoutVariantSpec] = [
+        // 1. Classic Mario "?" block.
+        ScoutVariantSpec(
+            id: "answer.questionBlock",
+            label: "A · ? 砖块（Mario ? Block）",
+            frame: [
+                "BBBBBBBB",
+                "BHHHHHHB",
+                "BHEEEEHB",
+                "BHHHHEHB",
+                "BHHHEHHB",
+                "BHHHHHHB",
+                "BHHHEHHB",
+                "BBBBBBBB",
+            ],
+            tint: .yellow
+        ),
+        // 2. Speech bubble with "?" in the middle.
+        ScoutVariantSpec(
+            id: "answer.speechBubble",
+            label: "B · 问号气泡",
+            frame: [
+                "BBBBBBB.",
+                "BEEEEEB.",
+                "BE..EEB.",
+                "BEEEEEB.",
+                "BE.EEEB.",
+                "BEEEEEB.",
+                "BBBBB.B.",
+                "....BB..",
+            ],
+            tint: .yellow
+        ),
+        // 3. Raised hand (asking).
+        ScoutVariantSpec(
+            id: "answer.raisedHand",
+            label: "C · 举手提问",
+            frame: [
+                "B.B.B.B.",
+                "BBBBBBB.",
+                "BBBBBBB.",
+                ".BBBBBB.",
+                ".BBBBBB.",
+                "..BBBB..",
+                "..BBBB..",
+                "..B..B..",
+            ],
+            tint: .yellow
+        ),
+        // 4. Current cat-curious (for reference).
         ScoutVariantSpec(
             id: "answer.cat",
-            label: "A · 好奇猫咪（当前）",
+            label: "D · 好奇猫咪（之前）",
             frame: [
                 "B......B",
                 "BB....BB",
@@ -343,59 +425,84 @@ enum ScoutVariantBank {
             ],
             tint: .yellow
         ),
-        ScoutVariantSpec(
-            id: "answer.raisedHand",
-            label: "B · 举手提问",
-            frame: [
-                "...B....",
-                "..BBB...",
-                "..BBB...",
-                "..BBBBBB",
-                "..BHEHEB",
-                "..BHHHHB",
-                "..BBBBBB",
-                "..B..B..",
-            ],
-            tint: .yellow
-        ),
-        ScoutVariantSpec(
-            id: "answer.questionHead",
-            label: "C · 头顶大问号",
-            frame: [
-                "..GGG...",
-                ".G...G..",
-                "....G...",
-                "...G....",
-                "..BBBB..",
-                ".BHEEHB.",
-                ".BHHHHB.",
-                "..BBBB..",
-            ],
-            tint: .yellow
-        ),
-        ScoutVariantSpec(
-            id: "answer.scratchHead",
-            label: "D · 挠头思考",
-            frame: [
-                "...B....",
-                "..BBB...",
-                "..BBB...",
-                ".BBEEBB.",
-                "BBHHHHBB",
-                ".BBBBBB.",
-                "..B..B..",
-                "........",
-            ],
-            tint: .yellow
-        ),
     ]
 
-    // ── Failed candidates ────────────────────────────────────────────
+    // MARK: Failed
 
     static let failedCandidates: [ScoutVariantSpec] = [
+        // 1. Classic skull — hollow eye sockets, teeth row.
+        ScoutVariantSpec(
+            id: "failed.skull",
+            label: "A · 骷髅头",
+            frame: [
+                "..BBBB..",
+                ".BBBBBB.",
+                "BBBBBBBB",
+                "BEEBBEEB",
+                "BEEBBEEB",
+                "BBBBBBBB",
+                ".B.BB.B.",
+                ".BWBWBWB",
+            ],
+            tint: Color(red: 0.95, green: 0.35, blue: 0.35),
+            accent: .red
+        ),
+        // 2. Broken heart — heart split down the middle.
+        ScoutVariantSpec(
+            id: "failed.brokenHeart",
+            label: "B · 碎心",
+            frame: [
+                ".BB..BB.",
+                "BBBBBBBB",
+                "BBBWWBBB",
+                "BBWBBWBB",
+                ".BWBBWB.",
+                "..WBBW..",
+                "...WW...",
+                "........",
+            ],
+            tint: Color(red: 0.95, green: 0.35, blue: 0.35),
+            accent: .red
+        ),
+        // 3. "X" eyes scout (classic dead cartoon).
+        ScoutVariantSpec(
+            id: "failed.xEyes",
+            label: "C · X 眼 scout",
+            frame: [
+                "..BBBB..",
+                ".BBBBBB.",
+                "BEBBBEBB",
+                "BBEBEBBB",
+                "BEBBBEBB",
+                "BBHHHHBB",
+                ".BBBBBB.",
+                "..BBBB..",
+            ],
+            tint: Color(red: 0.95, green: 0.35, blue: 0.35),
+            accent: .red
+        ),
+        // 4. Ghost Pac-Man "eyes only" — classic defeat visual where
+        //    the ghost body vanishes and only its eyes flee home.
+        ScoutVariantSpec(
+            id: "failed.pacGhostEyes",
+            label: "D · 只剩眼睛（GameOver）",
+            frame: [
+                "........",
+                "........",
+                "..BB.BB.",
+                "..BB.BB.",
+                "..EE.EE.",
+                "........",
+                "........",
+                "........",
+            ],
+            tint: Color(red: 0.95, green: 0.35, blue: 0.35),
+            accent: .red
+        ),
+        // 5. Cracked scout (current).
         ScoutVariantSpec(
             id: "failed.crackedDome",
-            label: "A · 头顶破裂（当前）",
+            label: "E · 破顶笑脸（之前）",
             frame: [
                 "..B..B..",
                 ".BBBBBB.",
@@ -409,62 +516,63 @@ enum ScoutVariantBank {
             tint: Color(red: 0.95, green: 0.35, blue: 0.35),
             accent: .red
         ),
-        ScoutVariantSpec(
-            id: "failed.xEyes",
-            label: "B · X 眼（死掉）",
-            frame: [
-                "..BBBB..",
-                ".BBBBBB.",
-                "BGBBBGBB",
-                "BBGBGBBB",
-                "BGBBBGBB",
-                "B..GG..B",
-                ".BBBBBB.",
-                "..BBBB..",
-            ],
-            tint: Color(red: 0.95, green: 0.35, blue: 0.35),
-            accent: .red
-        ),
-        ScoutVariantSpec(
-            id: "failed.fallen",
-            label: "C · 倒下的 scout",
-            frame: [
-                "........",
-                "........",
-                "..BBBB..",
-                ".BHEEHB.",
-                "BHHHHHHB",
-                ".BBBBBB.",
-                "BBBGGBBB",
-                ".B....B.",
-            ],
-            tint: Color(red: 0.95, green: 0.35, blue: 0.35),
-            accent: .red
-        ),
-        ScoutVariantSpec(
-            id: "failed.crackedRobot",
-            label: "D · 裂开的机器人",
-            frame: [
-                ".B....B.",
-                "BBBBBBBB",
-                "BGEHBEGB",
-                "BHHHHHHB",
-                "BB.BB.BB",
-                "..BBBB..",
-                "B.B..B.B",
-                ".B....B.",
-            ],
-            tint: Color(red: 0.95, green: 0.35, blue: 0.35),
-            accent: .red
-        ),
     ]
 
-    // ── Interrupted candidates ───────────────────────────────────────
+    // MARK: Interrupted
 
     static let interruptedCandidates: [ScoutVariantSpec] = [
+        // 1. Universal pause icon — two thick vertical bars.
+        ScoutVariantSpec(
+            id: "interrupted.pauseBars",
+            label: "A · 暂停键 ⏸",
+            frame: [
+                "........",
+                ".BBB.BBB",
+                ".BBB.BBB",
+                ".BBB.BBB",
+                ".BBB.BBB",
+                ".BBB.BBB",
+                ".BBB.BBB",
+                "........",
+            ],
+            tint: Color(red: 0.95, green: 0.55, blue: 0.25)
+        ),
+        // 2. Stop sign (octagon, solid) in interrupt tint.
+        ScoutVariantSpec(
+            id: "interrupted.stopSign",
+            label: "B · 停止标志",
+            frame: [
+                "..BBBB..",
+                ".BBBBBB.",
+                "BBBBBBBB",
+                "BWWWWWWB",
+                "BWWWWWWB",
+                "BBBBBBBB",
+                ".BBBBBB.",
+                "..BBBB..",
+            ],
+            tint: Color(red: 0.95, green: 0.55, blue: 0.25)
+        ),
+        // 3. Power button (circle with a gap + bar) — universal stop.
+        ScoutVariantSpec(
+            id: "interrupted.powerButton",
+            label: "C · 电源按钮",
+            frame: [
+                "...BB...",
+                ".BBBBBB.",
+                "BB.BB.BB",
+                "BB.BB.BB",
+                "BB....BB",
+                "BB....BB",
+                ".BBBBBB.",
+                "..BBBB..",
+            ],
+            tint: Color(red: 0.95, green: 0.55, blue: 0.25)
+        ),
+        // 4. Red bar through scout (current).
         ScoutVariantSpec(
             id: "interrupted.redBar",
-            label: "A · 红条拦腰（当前）",
+            label: "D · 红条拦腰（之前）",
             frame: [
                 "..BBBB..",
                 ".BBBBBB.",
@@ -478,61 +586,63 @@ enum ScoutVariantBank {
             tint: Color(red: 0.95, green: 0.55, blue: 0.25),
             accent: .red
         ),
-        ScoutVariantSpec(
-            id: "interrupted.stopPalm",
-            label: "B · 举手暂停",
-            frame: [
-                "...GG...",
-                "..GGGG..",
-                "..GGGG..",
-                "..GHHG..",
-                ".BBBBBB.",
-                "BBEBBEBB",
-                "BBHHHHBB",
-                ".BBBBBB.",
-            ],
-            tint: Color(red: 0.95, green: 0.55, blue: 0.25),
-            accent: .red
-        ),
-        ScoutVariantSpec(
-            id: "interrupted.frozen",
-            label: "C · 被冻结（外层白壳）",
-            frame: [
-                "WWWWWWWW",
-                "W.BBBB.W",
-                "W.BEBB.W",
-                "W.BBEH.W",
-                "W.BHHB.W",
-                "W.BBBB.W",
-                "WWWWWWWW",
-                "........",
-            ],
-            tint: Color(red: 0.95, green: 0.55, blue: 0.25)
-        ),
-        ScoutVariantSpec(
-            id: "interrupted.brokenLink",
-            label: "D · 断裂的 scout",
-            frame: [
-                "..BBBB..",
-                ".BBBBBB.",
-                "BBEBBEBB",
-                "BBHHHHBB",
-                ".B....B.",
-                ".G....G.",
-                "..BBBB..",
-                ".B....B.",
-            ],
-            tint: Color(red: 0.95, green: 0.55, blue: 0.25),
-            accent: .red
-        ),
     ]
 
-    // ── Subagent candidates ──────────────────────────────────────────
+    // MARK: Subagent
 
     static let subagentCandidates: [ScoutVariantSpec] = [
+        // 1. Twin pixel sprites — two Invaders side-by-side.
+        ScoutVariantSpec(
+            id: "subagent.twinInvaders",
+            label: "A · 双入侵者",
+            frame: [
+                "B.B..B.B",
+                ".BB..BB.",
+                "BBB..BBB",
+                "BEB..BEB",
+                ".BB..BB.",
+                "B.B..B.B",
+                "B......B",
+                "B......B",
+            ],
+            tint: Color(red: 0.55, green: 0.85, blue: 0.95)
+        ),
+        // 2. Parent + child — scout with a small scout on its shoulder.
+        ScoutVariantSpec(
+            id: "subagent.parentChild",
+            label: "B · 肩负小 scout",
+            frame: [
+                ".BB.....",
+                ".EB.....",
+                ".BBBBBB.",
+                "BBBBBBBB",
+                "BBEBBEBB",
+                "BBHHHHBB",
+                ".BBBBBB.",
+                "..B..B..",
+            ],
+            tint: Color(red: 0.55, green: 0.85, blue: 0.95)
+        ),
+        // 3. Two-player controller layout — classic arcade "2P" icon.
+        ScoutVariantSpec(
+            id: "subagent.twoPlayer",
+            label: "C · 2P 双人控制器",
+            frame: [
+                "........",
+                ".BBBBBBB",
+                "BB.EE.BB",
+                "BB.EE.BB",
+                ".BBBBBBB",
+                "BB.HH.BB",
+                "BB.HH.BB",
+                ".BBBBBBB",
+            ],
+            tint: Color(red: 0.55, green: 0.85, blue: 0.95)
+        ),
+        // 4. Current twin robots (for reference).
         ScoutVariantSpec(
             id: "subagent.twinRobots",
-            label: "A · 双胞胎机器人（当前）",
+            label: "D · 双胞胎机器人（之前）",
             frame: [
                 ".B....B.",
                 "BBBBBBBB",
@@ -542,51 +652,6 @@ enum ScoutVariantBank {
                 ".BBBBBB.",
                 "..B..B..",
                 ".B....B.",
-            ],
-            tint: Color(red: 0.55, green: 0.85, blue: 0.95)
-        ),
-        ScoutVariantSpec(
-            id: "subagent.parentChild",
-            label: "B · 大 scout 带小 scout",
-            frame: [
-                "...BB...",
-                "..BEEB..",
-                "..BBBB..",
-                ".BBBBBB.",
-                "BBEBBEBB",
-                "BBHHHHBB",
-                ".BBBBBB.",
-                "..B..B..",
-            ],
-            tint: Color(red: 0.55, green: 0.85, blue: 0.95)
-        ),
-        ScoutVariantSpec(
-            id: "subagent.cloned",
-            label: "C · scout + 分身虚影",
-            frame: [
-                "..BBBBHH",
-                ".BBBBBHH",
-                "BBEBBEHH",
-                "BBHHHHHH",
-                ".BBBBBHH",
-                "..BBBBHH",
-                "..B..BHH",
-                "........",
-            ],
-            tint: Color(red: 0.55, green: 0.85, blue: 0.95)
-        ),
-        ScoutVariantSpec(
-            id: "subagent.spawning",
-            label: "D · 头顶派生出小 scout",
-            frame: [
-                ".BB..BB.",
-                ".BE..EB.",
-                ".BB..BB.",
-                "...BB...",
-                "..BBBB..",
-                ".BHEEHB.",
-                ".BHHHHB.",
-                "..BBBB..",
             ],
             tint: Color(red: 0.55, green: 0.85, blue: 0.95)
         ),

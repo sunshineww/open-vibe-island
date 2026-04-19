@@ -149,37 +149,37 @@ struct ScoutStatePreviewPane: View {
 
                 ScoutVariantGallery(
                     title: "Completed — 任务成功完成",
-                    subtitle: "8 个候选：欢呼 / 奖杯 / 笑脸 / 派对帽 / 皇冠 / 奖牌 / 旗帜 / 大拇指",
+                    subtitle: "经典胜利符号：奖杯 / 星星 / 闪光 / 1UP 蘑菇 / 金币 / 奖牌 / 宝箱",
                     variants: ScoutVariantBank.completedCandidates
                 )
 
                 ScoutVariantGallery(
                     title: "Waiting for Approval — 等待授权",
-                    subtitle: "4 个候选：守卫 / 举手 STOP / 胸前 ! / 门卫",
+                    subtitle: "经典告警符号：! 砖块 / STOP 八边形 / 举手 HALT / 盾牌",
                     variants: ScoutVariantBank.approvalCandidates
                 )
 
                 ScoutVariantGallery(
                     title: "Waiting for Answer — 等待回答",
-                    subtitle: "4 个候选：猫 / 举手 / 头顶问号 / 挠头",
+                    subtitle: "经典提问符号：? 砖块 / 问号气泡 / 举手",
                     variants: ScoutVariantBank.answerCandidates
                 )
 
                 ScoutVariantGallery(
                     title: "Failed — 任务失败",
-                    subtitle: "4 个候选：破顶 / X眼 / 倒下 / 裂开机器人",
+                    subtitle: "经典失败符号：骷髅 / 碎心 / X 眼 / GameOver 幽灵眼",
                     variants: ScoutVariantBank.failedCandidates
                 )
 
                 ScoutVariantGallery(
                     title: "Interrupted — 用户中断",
-                    subtitle: "4 个候选：红条拦腰 / 举手暂停 / 冻结 / 断裂",
+                    subtitle: "经典暂停符号：⏸ / STOP / 电源键",
                     variants: ScoutVariantBank.interruptedCandidates
                 )
 
                 ScoutVariantGallery(
                     title: "Subagent — 派生子 agent",
-                    subtitle: "4 个候选：双胞胎 / 父子 / 分身虚影 / 派生",
+                    subtitle: "经典分身符号：双入侵者 / 肩负小 scout / 2P 控制器",
                     variants: ScoutVariantBank.subagentCandidates
                 )
             }
