@@ -593,6 +593,7 @@ final class AppModel {
         monitoring.onPersistenceNeeded = { [weak self] in
             self?.discovery.scheduleCodexSessionPersistence()
             self?.discovery.scheduleClaudeSessionPersistence()
+            self?.discovery.scheduleOpenCodeSessionPersistence()
             self?.discovery.scheduleCursorSessionPersistence()
         }
         monitoring.onCodexAppRunningChanged = { [weak self] isRunning in
@@ -1212,6 +1213,7 @@ final class AppModel {
         refreshOverlayPlacementIfVisible()
         discovery.scheduleCodexSessionPersistence()
         discovery.scheduleClaudeSessionPersistence()
+        discovery.scheduleOpenCodeSessionPersistence()
         discovery.scheduleCursorSessionPersistence()
 
         // Push relevant events to the Watch/iPhone via the relay
@@ -1258,6 +1260,17 @@ final class AppModel {
               notificationSurfaceIsEligibleForPresentation(surface, ingress: ingress),
               let sessionID = surface.sessionID,
               let session = state.session(id: sessionID) else {
+            return
+        }
+
+        // Approval/question prompts bypass suppressFrontmostNotifications —
+        // these surfaces are only resolvable from the island, so the user
+        // needs the card to appear even when the session's terminal is
+        // already frontmost.
+        if session.phase.requiresAttention {
+            notificationPresentationTask?.cancel()
+            notificationPresentationTask = nil
+            presentNotificationSurface(surface)
             return
         }
 

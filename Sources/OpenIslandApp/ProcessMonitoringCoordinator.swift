@@ -44,6 +44,8 @@ final class ProcessMonitoringCoordinator {
     @ObservationIgnored
     private var wasCodexAppRunning = false
 
+    private static let cursorStalenessTimeout: TimeInterval = 600  // 10 minutes
+
     private var state: SessionState {
         get { stateAccessor?() ?? SessionState() }
         set { stateUpdater?(newValue) }
@@ -257,6 +259,10 @@ final class ProcessMonitoringCoordinator {
 
     // MARK: - Process liveness
 
+    /// Returns the set of session IDs whose backing agent process is still
+    /// alive, based on ``ActiveProcessSnapshot`` matching and per-tool
+    /// heuristics (e.g. bundle-ID liveness for Cursor, PID matching for
+    /// Codex/Claude/Gemini).
     func sessionIDsWithAliveProcesses(
         activeProcesses: [ActiveProcessSnapshot]
     ) -> Set<String> {
@@ -316,12 +322,37 @@ final class ProcessMonitoringCoordinator {
             claimedSessionIDs.insert(matched.id)
         }
 
-        // OpenCode sessions: the JS plugin runs inside the OpenCode process.
-        // We can't match by session ID (plugin doesn't expose it to ps), so
-        // keep all OpenCode sessions alive as long as any OpenCode process exists.
-        let hasOpenCodeProcess = activeProcesses.contains { $0.tool == .openCode }
-        if hasOpenCodeProcess {
-            for session in sessions where session.tool == .openCode && !session.isDemoSession {
+        // OpenCode sessions are hook-managed, but OpenCode does not expose a stable
+        // session ID through process discovery. Match each active OpenCode process
+        // to at most one tracked session.
+        let openCodeProcesses = activeProcesses.filter { $0.tool == .openCode }
+        // Do not filter by `isHookManaged` here because restored sessions drop that flag.
+        let trackedOpenCodeSessions = sessions.filter { $0.tool == .openCode && !$0.isDemoSession }
+        var claimedOpenCodeSessionIDs: Set<String> = []
+        var hasUnmatchedOpenCodeProcess = false
+
+        for process in openCodeProcesses {
+            let matchResult = uniqueTrackedOpenCodeSession(
+                for: process,
+                sessions: trackedOpenCodeSessions,
+                claimedSessionIDs: claimedOpenCodeSessionIDs
+            )
+            switch matchResult {
+            case .matched(let matched):
+                aliveIDs.insert(matched.id)
+                claimedOpenCodeSessionIDs.insert(matched.id)
+            case .ambiguous:
+                hasUnmatchedOpenCodeProcess = true
+            case .rejectedConflict:
+                break
+            }
+        }
+
+        // Fallback: If there are active OpenCode processes that we couldn't uniquely
+        // match, keep all remaining unclaimed OpenCode sessions alive to prevent
+        // incorrectly marking them as ended.
+        if hasUnmatchedOpenCodeProcess {
+            for session in trackedOpenCodeSessions where !claimedOpenCodeSessionIDs.contains(session.id) {
                 aliveIDs.insert(session.id)
             }
         }
@@ -359,14 +390,22 @@ final class ProcessMonitoringCoordinator {
         }
 
         // Cursor sessions: Cursor is an Electron IDE — we cannot match
-        // individual session IDs from ps/lsof.  Keep all Cursor sessions
-        // alive as long as Cursor.app is running.
+        // individual session IDs from ps/lsof.  Keep Cursor sessions alive
+        // while Cursor.app is running, but let completed sessions expire
+        // after a staleness window so the notch clears when the user is
+        // no longer interacting with the conversation.  Cursor has no
+        // "tab closed" hook, so this timeout is the best available proxy.
         let isCursorRunning = !NSRunningApplication.runningApplications(
             withBundleIdentifier: "com.todesktop.230313mzl4w4u92"
         ).isEmpty
         if isCursorRunning {
             for session in sessions where session.tool == .cursor && !session.isDemoSession {
-                aliveIDs.insert(session.id)
+                if session.isSessionEnded { continue }
+                let isStale = session.phase == .completed
+                    && session.updatedAt.addingTimeInterval(Self.cursorStalenessTimeout) < Date.now
+                if !isStale {
+                    aliveIDs.insert(session.id)
+                }
             }
         }
 
@@ -377,6 +416,63 @@ final class ProcessMonitoringCoordinator {
         }
 
         return aliveIDs
+    }
+
+    private enum OpenCodeMatchResult {
+        case matched(AgentSession)
+        case ambiguous
+        case rejectedConflict
+    }
+
+    private func uniqueTrackedOpenCodeSession(
+        for process: ActiveProcessSnapshot,
+        sessions: [AgentSession],
+        claimedSessionIDs: Set<String>
+    ) -> OpenCodeMatchResult {
+        let unclaimedSessions = sessions.filter { !claimedSessionIDs.contains($0.id) }
+        guard !unclaimedSessions.isEmpty else {
+            return .ambiguous
+        }
+
+        if let terminalTTY = normalizedTTYForMatching(process.terminalTTY) {
+            let candidates = unclaimedSessions.filter {
+                normalizedTTYForMatching($0.jumpTarget?.terminalTTY) == terminalTTY
+            }
+            if candidates.count == 1 {
+                let candidate = candidates[0]
+                if let processCWD = normalizedPathForMatching(process.workingDirectory),
+                   let sessionCWD = normalizedPathForMatching(candidate.jumpTarget?.workingDirectory),
+                   processCWD != sessionCWD {
+                    // TTY matched, but CWD explicitly differs (e.g., terminal tab was reused in another directory).
+                    return .rejectedConflict
+                }
+                return .matched(candidate)
+            }
+            if !candidates.isEmpty {
+                if let processCWD = normalizedPathForMatching(process.workingDirectory) {
+                    let cwdCandidates = candidates.filter {
+                        normalizedPathForMatching($0.jumpTarget?.workingDirectory) == processCWD
+                    }
+                    if cwdCandidates.count == 1 {
+                        return .matched(cwdCandidates[0])
+                    }
+                }
+                return .ambiguous
+            }
+        }
+
+        if let processCWD = normalizedPathForMatching(process.workingDirectory) {
+            let workspaceMatches = unclaimedSessions.filter {
+                normalizedPathForMatching($0.jumpTarget?.workingDirectory) == processCWD
+            }
+            if workspaceMatches.count == 1 {
+                return .matched(workspaceMatches[0])
+            }
+        }
+
+        // We require at least a positive match on TTY or CWD.
+        // Do not blindly link the process just because only one session remains.
+        return .ambiguous
     }
 
     private func uniqueTrackedGeminiSession(

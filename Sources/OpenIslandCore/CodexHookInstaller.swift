@@ -63,14 +63,23 @@ public enum CodexHookInstaller {
 
     // Keep the managed Codex install aligned with the original app's low-noise footprint
     // while still surfacing shell approvals. We install the minimal event set needed for
-    // session tracking plus PreToolUse for permission gating, but continue to skip
-    // PostToolUse because per-command Bash result hooks produce a large amount of
-    // terminal log spam.
+    // session tracking plus PermissionRequest for approval gating. PermissionRequest only
+    // fires when Codex is actually about to prompt the user, so it avoids the noise of
+    // PreToolUse (which fires for every tool call) and lets the island honor allow/deny
+    // (PreToolUse's allow decision is explicitly unsupported by Codex and falls through
+    // to the terminal y/n prompt, causing double approval). Requires codex >= 0.122.0-alpha.7.
     private static let eventSpecs: [(name: String, matcher: String?, timeout: Int)] = [
         ("SessionStart", "startup|resume", managedTimeout),
         ("UserPromptSubmit", nil, managedTimeout),
-        ("PreToolUse", "Bash", interactiveManagedTimeout),
+        ("PermissionRequest", "Bash", interactiveManagedTimeout),
         ("Stop", nil, managedTimeout),
+    ]
+
+    // Event names we previously installed managed hooks into but no longer do.
+    // Scanned during uninstall/reinstall so an upgrade from an older Open Island
+    // release cleans up stale managed entries rather than leaving orphans.
+    private static let legacyManagedEventNames: Set<String> = [
+        "PreToolUse",
     ]
 
     public static func hookCommand(for binaryPath: String) -> String {
@@ -122,8 +131,14 @@ public enum CodexHookInstaller {
         var hooksObject = rootObject["hooks"] as? [String: Any] ?? [:]
         var mutated = false
 
-        for spec in eventSpecs {
-            let existingGroups = hooksObject[spec.name] as? [Any] ?? []
+        // Scan both currently-installed event names AND legacy ones so that an upgrade
+        // from an older Open Island (which installed PreToolUse) also cleans up its
+        // stale managed entries during uninstall.
+        var scanNames = Set(eventSpecs.map(\.name))
+        scanNames.formUnion(legacyManagedEventNames)
+
+        for name in scanNames {
+            let existingGroups = hooksObject[name] as? [Any] ?? []
             let cleanedGroups = sanitize(groups: existingGroups, managedCommand: managedCommand)
 
             if cleanedGroups.count != existingGroups.count || containsManagedHook(in: existingGroups, managedCommand: managedCommand) {
@@ -131,9 +146,9 @@ public enum CodexHookInstaller {
             }
 
             if cleanedGroups.isEmpty {
-                hooksObject.removeValue(forKey: spec.name)
+                hooksObject.removeValue(forKey: name)
             } else {
-                hooksObject[spec.name] = cleanedGroups
+                hooksObject[name] = cleanedGroups
             }
         }
 

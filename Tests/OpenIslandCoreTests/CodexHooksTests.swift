@@ -86,4 +86,30 @@ struct CodexHooksTests {
         #expect(payload.warpPaneUUID == nil)
     }
 
+    // MARK: - CodexHookOutputEncoder schemas
+
+    @Test
+    func encoderEmitsAllowSchemaOnAck() throws {
+        let data = try CodexHookOutputEncoder.standardOutput(for: .acknowledged)
+        let line = try #require(data)
+        let json = try JSONSerialization.jsonObject(with: line) as? [String: Any]
+        let output = json?["hookSpecificOutput"] as? [String: Any]
+        let decision = output?["decision"] as? [String: Any]
+        #expect(output?["hookEventName"] as? String == "PermissionRequest")
+        #expect(decision?["behavior"] as? String == "allow")
+    }
+
+    @Test
+    func encoderEmitsDenySchemaForCodexHookDirectiveDeny() throws {
+        let data = try CodexHookOutputEncoder.standardOutput(
+            for: .codexHookDirective(.deny(reason: "Denied in Open Island."))
+        )
+        let line = try #require(data)
+        let json = try JSONSerialization.jsonObject(with: line) as? [String: Any]
+        let output = json?["hookSpecificOutput"] as? [String: Any]
+        let decision = output?["decision"] as? [String: Any]
+        #expect(output?["hookEventName"] as? String == "PermissionRequest")
+        #expect(decision?["behavior"] as? String == "deny")
+        #expect(decision?["message"] as? String == "Denied in Open Island.")
+    }
 }

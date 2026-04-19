@@ -17,7 +17,7 @@ struct CodexHookTraceLoggerTests {
             stage: "cli.receive",
             fields: [
                 "sessionID": "session-1",
-                "event": "PreToolUse",
+                "event": "PermissionRequest",
                 "command": "echo hello",
             ],
             environment: [
@@ -31,7 +31,7 @@ struct CodexHookTraceLoggerTests {
         #expect(contents.contains("\"process\":\"OpenIslandHooks\""))
         #expect(contents.contains("\"stage\":\"cli.receive\""))
         #expect(contents.contains("\"sessionID\":\"session-1\""))
-        #expect(contents.contains("\"event\":\"PreToolUse\""))
+        #expect(contents.contains("\"event\":\"PermissionRequest\""))
     }
 
     @Test

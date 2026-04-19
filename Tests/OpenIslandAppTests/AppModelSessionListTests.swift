@@ -344,7 +344,58 @@ struct AppModelSessionListTests {
     }
 
     @Test
-    func bridgeNotificationIsSuppressedWhenSessionIsAlreadyFrontmost() async throws {
+    func bridgeCompletionNotificationIsSuppressedWhenSessionIsAlreadyFrontmost() async throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let model = AppModel(
+            isNotificationSessionAlreadyFrontmost: { session in
+                session.id == "frontmost-session"
+            }
+        )
+        model.notchStatus = .closed
+        model.notchOpenReason = nil
+        model.state = SessionState(
+            sessions: [
+                AgentSession(
+                    id: "frontmost-session",
+                    title: "Codex · open-island",
+                    tool: .codex,
+                    origin: .live,
+                    attachmentState: .attached,
+                    phase: .running,
+                    summary: "Already focused in the front terminal.",
+                    updatedAt: now
+                ),
+            ]
+        )
+
+        model.applyTrackedEvent(
+            .sessionCompleted(
+                SessionCompleted(
+                    sessionID: "frontmost-session",
+                    summary: "Completed while still frontmost.",
+                    timestamp: now.addingTimeInterval(1)
+                )
+            ),
+            updateLastActionMessage: false,
+            ingress: .bridge
+        )
+
+        for _ in 0..<20 {
+            await Task.yield()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(model.notchStatus == .closed)
+        #expect(model.notchOpenReason == nil)
+        #expect(model.islandSurface == .sessionList())
+    }
+
+    @Test
+    func bridgeApprovalNotificationStillPresentsWhenSessionIsAlreadyFrontmost() async throws {
+        // Approval/question cards are the only way for the user to respond —
+        // they must show even when the session's terminal is already in the
+        // foreground. Otherwise codex/claude block forever waiting for an
+        // island click that never appears.
         let now = Date(timeIntervalSince1970: 2_000)
         let model = AppModel(
             isNotificationSessionAlreadyFrontmost: { session in
@@ -385,13 +436,16 @@ struct AppModelSessionListTests {
         )
 
         for _ in 0..<20 {
+            if model.notchStatus == .opened {
+                break
+            }
             await Task.yield()
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        #expect(model.notchStatus == .closed)
-        #expect(model.notchOpenReason == nil)
-        #expect(model.islandSurface == .sessionList())
+        #expect(model.notchStatus == .opened)
+        #expect(model.notchOpenReason == .notification)
+        #expect(model.islandSurface == .sessionList(actionableSessionID: "frontmost-session"))
     }
 
     @Test
