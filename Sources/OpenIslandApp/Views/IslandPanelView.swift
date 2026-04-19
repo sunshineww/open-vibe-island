@@ -159,6 +159,11 @@ struct IslandPanelView: View {
         guard let session = closedSpotlightSession else {
             return .idle
         }
+        // Stale attachment: session is technically alive but its terminal is
+        // gone, so treat it like a passive "sleeping" state on the island.
+        if session.attachmentState == .stale && !session.phase.requiresAttention {
+            return .stale
+        }
         switch session.phase {
         case .running:
             return Self.scoutPhaseForRunning(toolName: session.currentToolName)
@@ -168,6 +173,10 @@ struct IslandPanelView: View {
             return .waitingForAnswer
         case .completed:
             return .completed
+        case .failed:
+            return .failed
+        case .interrupted:
+            return .interrupted
         }
     }
 
@@ -182,27 +191,69 @@ struct IslandPanelView: View {
         return Self.displayToolName(toolName)
     }
 
+    /// Tools that read or modify source files / notebooks.
     private static let codingTools: Set<String> = [
-        "read", "edit", "write", "grep", "glob", "notebookedit", "lsp",
+        "read", "edit", "write", "multiedit", "notebookedit",
+        "grep", "glob", "lsp",
+        "todowrite",          // Claude Code todo list maintenance
+        "taskcreate", "taskupdate", "taskget", "tasklist",
     ]
 
+    /// Tools that run shell commands or touch background shells.
     private static let commandTools: Set<String> = [
         "bash", "exec_command",
+        "killshell", "bashoutput",
+        "slashcommand",       // Claude Code slash invocations
     ]
 
+    /// Tools that perform lookups against external knowledge.
     private static let searchTools: Set<String> = [
-        "websearch", "webfetch", "agent",
+        "websearch", "webfetch", "webresearch",
+    ]
+
+    /// Tools that delegate work to a sub-agent.
+    private static let subagentTools: Set<String> = [
+        "task", "agent", "spawnagent",
+    ]
+
+    /// Tools that indicate planning / meta-cognition (no primary action).
+    private static let thinkingTools: Set<String> = [
+        "skill", "exitplanmode", "entrplanmode", "enterplanmode",
+        "plan", "todoread",
     ]
 
     fileprivate static func scoutPhaseForRunning(toolName: String?) -> OpenIslandBrandMark.ScoutPhase {
-        guard let tool = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !tool.isEmpty else {
+        guard let rawTool = toolName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawTool.isEmpty else {
             return .thinking
         }
+        let tool = rawTool.lowercased()
         if tool == "__compacting__" { return .compacting }
+        if subagentTools.contains(tool) { return .subagent }
         if codingTools.contains(tool) { return .coding }
         if commandTools.contains(tool) { return .runningCommand }
         if searchTools.contains(tool) { return .searching }
+        if thinkingTools.contains(tool) { return .thinking }
+
+        // MCP tool namespace (mcp__<server>__<tool>). Categorize by the well
+        // known server prefixes we recognize; fall back to searching for the
+        // generic case since most MCP servers expose lookup-style tools.
+        if tool.hasPrefix("mcp__") {
+            if tool.contains("chrome-devtools") || tool.contains("browser")
+                || tool.contains("puppeteer") || tool.contains("playwright") {
+                return .runningCommand
+            }
+            if tool.contains("ide") && tool.contains("executecode") {
+                return .runningCommand
+            }
+            if tool.contains("confluence") || tool.contains("jira")
+                || tool.contains("github") || tool.contains("ghe")
+                || tool.contains("search") || tool.contains("web") {
+                return .searching
+            }
+            return .searching
+        }
+
         return .thinking
     }
 
@@ -212,6 +263,7 @@ struct IslandPanelView: View {
         case "bash":            return "Bash"
         case "read":            return "Read"
         case "edit":            return "Edit"
+        case "multiedit":       return "MultiEdit"
         case "write":           return "Write"
         case "grep":            return "Grep"
         case "glob":            return "Glob"
@@ -219,9 +271,28 @@ struct IslandPanelView: View {
         case "lsp":             return "LSP"
         case "websearch":       return "Search"
         case "webfetch":        return "Fetch"
+        case "webresearch":     return "Research"
         case "agent":           return "Agent"
+        case "task":            return "Task"
+        case "todowrite":       return "Todo"
+        case "taskcreate",
+             "taskupdate",
+             "taskget",
+             "tasklist":        return "Task"
+        case "killshell":       return "Kill"
+        case "bashoutput":      return "Output"
+        case "slashcommand":    return "Slash"
+        case "skill":           return "Skill"
+        case "plan",
+             "enterplanmode",
+             "entrplanmode",
+             "exitplanmode":    return "Plan"
         case "__compacting__":  return "Compact"
-        default:                return toolName
+        default:
+            if toolName.lowercased().hasPrefix("mcp__") {
+                return "MCP"
+            }
+            return toolName
         }
     }
 
@@ -240,10 +311,14 @@ struct IslandPanelView: View {
         case .coding:               return Color(red: 0.0, green: 0.8, blue: 0.85)       // 青色
         case .runningCommand:       return Color(red: 0.65, green: 0.45, blue: 1.0)      // 紫色
         case .searching:            return Color(red: 0.3, green: 0.5, blue: 0.95)       // 靛蓝
+        case .subagent:             return Color(red: 0.55, green: 0.85, blue: 0.95)     // 浅青
         case .waitingForApproval:   return .orange
         case .waitingForAnswer:     return .yellow
         case .completed:            return .green
         case .compacting:           return Color(red: 0.85, green: 0.55, blue: 0.2)      // 琥珀色
+        case .failed:               return Color(red: 0.95, green: 0.35, blue: 0.35)     // 红色
+        case .interrupted:          return Color(red: 0.95, green: 0.55, blue: 0.25)     // 橙红
+        case .stale:                return Color(red: 0.55, green: 0.6, blue: 0.65)      // 冷灰
         }
     }
 
@@ -760,6 +835,8 @@ struct IslandPanelView: View {
         case .waitingForApproval: .orange
         case .waitingForAnswer: .yellow
         case .completed: .blue
+        case .failed: Color(red: 0.95, green: 0.35, blue: 0.35)
+        case .interrupted: Color(red: 0.95, green: 0.55, blue: 0.25)
         }
     }
 
@@ -1392,6 +1469,10 @@ private struct IslandSessionRow: View {
             Color(red: 0.34, green: 0.61, blue: 0.99)
         case .completed:
             Color(red: 0.29, green: 0.86, blue: 0.46)
+        case .failed:
+            Color(red: 0.95, green: 0.35, blue: 0.35)
+        case .interrupted:
+            Color(red: 0.95, green: 0.55, blue: 0.25)
         }
     }
 
@@ -1402,7 +1483,7 @@ private struct IslandSessionRow: View {
             approvalActionBody
         case .waitingForAnswer:
             questionActionBody
-        case .completed:
+        case .completed, .failed, .interrupted:
             completionActionBody
         case .running:
             EmptyView()
@@ -1706,6 +1787,11 @@ private struct IslandSessionRow: View {
     }
 
     private func rowScoutPhase(for presence: IslandSessionPresence) -> OpenIslandBrandMark.ScoutPhase {
+        // Stale attachment: session is alive but its terminal is gone.
+        if session.attachmentState == .stale && !session.phase.requiresAttention
+           && session.phase != .failed && session.phase != .interrupted {
+            return .stale
+        }
         switch session.phase {
         case .running:
             return IslandPanelView.scoutPhaseForRunning(toolName: session.currentToolName)
@@ -1718,6 +1804,10 @@ private struct IslandSessionRow: View {
                 return .idle
             }
             return .completed
+        case .failed:
+            return .failed
+        case .interrupted:
+            return .interrupted
         }
     }
 

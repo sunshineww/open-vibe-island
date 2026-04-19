@@ -104,6 +104,10 @@ extension AgentSession {
             return "Question"
         case .completed:
             return jumpTarget != nil ? "Idle" : "Completed"
+        case .failed:
+            return "Failed"
+        case .interrupted:
+            return "Interrupted"
         }
     }
 
@@ -220,6 +224,14 @@ extension AgentSession {
             }
 
             return jumpTarget != nil ? "Ready" : "Completed"
+        case .failed:
+            if let assistantMessage = lastAssistantMessageText?.trimmedForSurface,
+               !assistantMessage.isEmpty {
+                return assistantMessage
+            }
+            return "Session failed"
+        case .interrupted:
+            return "Interrupted by user"
         }
     }
 
@@ -238,6 +250,10 @@ extension AgentSession {
             return .ready
         case .waitingForApproval, .waitingForAnswer:
             return .attention
+        case .failed, .interrupted:
+            // Passive end states — visually distinct from "completed" but not
+            // screaming for attention; tone-wise they feel like a done card.
+            return .ready
         }
     }
 

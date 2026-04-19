@@ -303,6 +303,8 @@ struct AppearanceSettingsPane: View {
         case .waitingForApproval: lang.t("settings.appearance.status.approval")
         case .waitingForAnswer:   lang.t("settings.appearance.status.answer")
         case .completed:          lang.t("settings.appearance.status.completed")
+        case .failed:             lang.t("settings.appearance.status.failed")
+        case .interrupted:        lang.t("settings.appearance.status.interrupted")
         }
     }
 

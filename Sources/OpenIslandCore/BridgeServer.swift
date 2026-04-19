@@ -832,13 +832,19 @@ public final class BridgeServer: @unchecked Sendable {
             // Turn failed — all subagents from this turn must be finished.
             clearAllActiveSubagents(fromSession: payload.sessionID)
 
+            // StopFailure + isInterrupt = user pressed Ctrl+C while the turn
+            // was finishing; StopFailure alone = an uncaught error. Route
+            // each to its semantic terminal phase so the island icon reads
+            // accurately instead of collapsing into generic "Completed".
+            let isInterruptFailure = payload.isInterrupt == true
             emit(
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
                         summary: payload.error ?? payload.lastAssistantMessage ?? payload.assistantMessagePreview ?? "\(payload.resolvedAgentTool.displayName) failed to finish the turn.",
                         timestamp: .now,
-                        isInterrupt: payload.isInterrupt
+                        isInterrupt: payload.isInterrupt,
+                        isFailure: isInterruptFailure ? nil : true
                     )
                 )
             )
@@ -1212,20 +1218,30 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeCursorJumpTarget(for: payload)
             synchronizeCursorMetadata(for: payload)
             let stopSummary: String
+            let cursorIsFailure: Bool
+            let cursorIsInterrupt: Bool
             switch payload.status {
             case "error":
                 stopSummary = "Cursor encountered an error."
+                cursorIsFailure = true
+                cursorIsInterrupt = false
             case "aborted":
                 stopSummary = "Cursor task was aborted."
+                cursorIsFailure = false
+                cursorIsInterrupt = true
             default:
                 stopSummary = "Cursor completed the turn."
+                cursorIsFailure = false
+                cursorIsInterrupt = false
             }
             emit(
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
                         summary: stopSummary,
-                        timestamp: .now
+                        timestamp: .now,
+                        isInterrupt: cursorIsInterrupt ? true : nil,
+                        isFailure: cursorIsFailure ? true : nil
                     )
                 )
             )

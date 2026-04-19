@@ -1442,6 +1442,10 @@ final class AppModel {
             score += 1_200
         case .completed:
             score += 600
+        case .failed, .interrupted:
+            // Slightly higher than completed so a fresh failure surfaces in
+            // the spotlight and the user notices something went wrong.
+            score += 800
         }
 
         let age = now.timeIntervalSince(session.islandActivityDate)

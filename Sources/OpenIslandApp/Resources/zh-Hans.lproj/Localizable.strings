@@ -71,6 +71,8 @@
 "settings.appearance.status.approval" = "等待审批";
 "settings.appearance.status.answer" = "等待回答";
 "settings.appearance.status.completed" = "已完成";
+"settings.appearance.status.failed" = "失败";
+"settings.appearance.status.interrupted" = "已中断";
 "settings.appearance.communityNote" = "这里的大部分内容由社区构建。\n有自己的 vibe？欢迎提 PR。";
 
 /* Settings - Display */

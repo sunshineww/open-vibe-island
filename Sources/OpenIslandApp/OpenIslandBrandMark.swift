@@ -18,17 +18,35 @@ struct OpenIslandBrandMark: View {
         case runningCommand
         /// Agent is searching/browsing (WebSearch, WebFetch, Agent, LSP).
         case searching
+        /// Agent spawned a sub-agent (Task tool) to do work on its behalf.
+        case subagent
         /// Waiting for user to approve a tool/permission.
         case waitingForApproval
         /// Waiting for user to answer a question.
         case waitingForAnswer
-        /// Session completed.
+        /// Session completed successfully.
         case completed
         /// Context is being compacted/merged.
         case compacting
+        /// Session ended with a failure (StopFailure / PostToolUseFailure).
+        case failed
+        /// Session was interrupted by the user (Ctrl+C / deny+interrupt).
+        case interrupted
+        /// Session is technically alive but its terminal is gone — stale.
+        case stale
 
-        /// All phases animate — each at its own rhythm.
-        var isAnimated: Bool { true }
+        /// Whether the scout body frames should cycle while this phase is on screen.
+        /// Idle / completed / failed / interrupted / stale are terminal or passive,
+        /// so their pixel art stays still to avoid distracting background motion.
+        var isAnimated: Bool {
+            switch self {
+            case .idle, .completed, .failed, .interrupted, .stale:
+                return false
+            case .thinking, .coding, .runningCommand, .searching,
+                 .subagent, .waitingForApproval, .waitingForAnswer, .compacting:
+                return true
+            }
+        }
     }
 
     let size: CGFloat
@@ -42,8 +60,8 @@ struct OpenIslandBrandMark: View {
     // B = body (primary tint)
     // H = highlight (lighter tint)
     // E = eye (dark)
-    // W = wink/closed eye (medium tint, used in thinking poses)
-    // G = happy eye (green, used in completed pose)
+    // W = wink/closed eye (medium tint, used in thinking / stale poses)
+    // G = happy eye / accent pixel (green for completed, red-tinted for failed)
 
     // ── 1. Idle: Space Invader (frame A: arms down) ──
     private static let idleFrameA: [String] = [
@@ -213,28 +231,34 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 8. Completed: Trophy (frame A: sparkle left) ──
+    // ── 8. Completed: Big smiley (frame A) ──
+    //
+    // The old trophy silhouette was visually ambiguous at 14 px — its outline
+    // looked almost identical to the Space Invader idle sprite. This smiley
+    // uses a round dome top (..BBBB.. / .BBBBBB.) that reads very differently
+    // from idle's two-antenna top (..B..B..), plus green (G) accent pixels in
+    // the mouth so the "success" semantics are unmistakable even tiny.
     private static let completedFrameA: [String] = [
-        "H..BB...",
-        "..BGBB..",
-        ".BGGGGB.",
-        "BBGGGGBB",
-        ".BBGGBB.",
         "..BBBB..",
-        "..B..B..",
-        ".BB..BB.",
+        ".BBBBBB.",
+        "BBEBBEBB",
+        "BBHHHHBB",
+        "B.HGGH.B",
+        "B..GG..B",
+        ".BBBBBB.",
+        "..BBBB..",
     ]
 
-    // ── 8. Completed: Trophy (frame B: sparkle right) ──
+    // ── 8. Completed: Big smiley (frame B: wink) ──
     private static let completedFrameB: [String] = [
-        "...BB..H",
-        "..BGBB..",
-        ".BGGGGB.",
-        "BBGGGGBB",
-        ".BBGGBB.",
         "..BBBB..",
-        "..B..B..",
-        ".BB..BB.",
+        ".BBBBBB.",
+        "BBWBBEBB",
+        "BBHHHHBB",
+        "B.HGGH.B",
+        "B..GG..B",
+        ".BBBBBB.",
+        "..BBBB..",
     ]
 
     // ── 9. Compacting: Vortex creature (frame A: spin left) ──
@@ -258,6 +282,71 @@ struct OpenIslandBrandMark: View {
         ".BHHHHB.",
         "..BBBB..",
         "...BB...",
+        "........",
+    ]
+
+    // ── 10. Subagent: Two linked scouts (frame A) ──
+    private static let subagentFrameA: [String] = [
+        ".B....B.",
+        "BBB..BBB",
+        "BEB..BEB",
+        "BHHBBHHB",
+        ".BBBBBB.",
+        ".B.BB.B.",
+        "B.B..B.B",
+        "........",
+    ]
+
+    // ── 10. Subagent: Two linked scouts (frame B: arms swap) ──
+    private static let subagentFrameB: [String] = [
+        ".B....B.",
+        "BBB..BBB",
+        "BEB..BEB",
+        "BHHBBHHB",
+        ".BBBBBB.",
+        "B.B..B.B",
+        ".B.BB.B.",
+        "........",
+    ]
+
+    // ── 11. Failed: Sad robot (single frame — phase is passive) ──
+    //
+    // Uses G role (repurposed as red accent in failed tint) for the frowning
+    // mouth so the state reads as "something went wrong" at first glance.
+    private static let failedFrameA: [String] = [
+        "..BBBB..",
+        ".BBBBBB.",
+        "BBEBBEBB",
+        "BBHHHHBB",
+        "B..GG..B",
+        "B.GBBG.B",
+        ".BBBBBB.",
+        "..BBBB..",
+    ]
+
+    // ── 12. Interrupted: Stopped scout with a horizontal bar (single frame) ──
+    private static let interruptedFrameA: [String] = [
+        "..BBBB..",
+        ".BBBBBB.",
+        "BBEBBEBB",
+        "BBHHHHBB",
+        "GGGGGGGG",
+        "..BBBB..",
+        ".BB..BB.",
+        "........",
+    ]
+
+    // ── 13. Stale: Sleeping scout (single frame) ──
+    //
+    // Closed eyes + loose body to read as "idle / disconnected".
+    private static let staleFrameA: [String] = [
+        "..BBBB..",
+        ".BBBBBB.",
+        "BBWWWWBB",
+        "BBHHHHBB",
+        ".BBBBBB.",
+        "..BBBB..",
+        ".B....B.",
         "........",
     ]
 
@@ -335,6 +424,66 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
+    /// </> angle brackets — "editing code" for the coding phase.
+    private static let codeBracketsBadgePattern: [String] = [
+        "........",
+        "..B..B..",
+        ".B....B.",
+        "B......B",
+        ".B....B.",
+        "..B..B..",
+        "........",
+        "........",
+    ]
+
+    /// ⎇ fork icon — subagent spawning.
+    private static let forkBadgePattern: [String] = [
+        "....B...",
+        "...B.B..",
+        "..B...B.",
+        ".B.....B",
+        "B..B...B",
+        "...B....",
+        "...B....",
+        "........",
+    ]
+
+    /// ✗ cross — failure.
+    private static let crossBadgePattern: [String] = [
+        "........",
+        "B......B",
+        ".B....B.",
+        "..B..B..",
+        "...BB...",
+        "..B..B..",
+        ".B....B.",
+        "B......B",
+    ]
+
+    /// ⏸ double bar — interrupted.
+    private static let pauseBadgePattern: [String] = [
+        "........",
+        ".BB..BB.",
+        ".BB..BB.",
+        ".BB..BB.",
+        ".BB..BB.",
+        ".BB..BB.",
+        ".BB..BB.",
+        "........",
+    ]
+
+    /// "Z" — stale / sleeping.
+    private static let zBadgePattern: [String] = [
+        "........",
+        "BBBBBB..",
+        "....B...",
+        "...B....",
+        "..B.....",
+        ".B......",
+        "BBBBBB..",
+        "........",
+    ]
+
     // MARK: - Precomputed pixel lists
 
     private static func parsePixels(_ pattern: [String]) -> [(x: Int, y: Int, role: Character)] {
@@ -363,64 +512,11 @@ struct OpenIslandBrandMark: View {
     private static let completedPixelsB = parsePixels(completedFrameB)
     private static let compactingPixelsA = parsePixels(compactingFrameA)
     private static let compactingPixelsB = parsePixels(compactingFrameB)
-
-    // MARK: - Pixel badge patterns (3×5, drawn top-right of scout)
-    //
-    // S = badge pixel (colored per phase)
-
-    /// Thinking: "..." three dots
-    private static let dotsBadge: [String] = [
-        "...",
-        "...",
-        "...",
-        "S.S",
-        "...",
-    ]
-
-    /// Lightning bolt for running command.
-    private static let lightningBadge: [String] = [
-        ".SS",
-        ".S.",
-        "SS.",
-        ".S.",
-        "S..",
-    ]
-
-    /// "!" exclamation for approval.
-    private static let exclamationBadge: [String] = [
-        ".S.",
-        ".S.",
-        ".S.",
-        "...",
-        ".S.",
-    ]
-
-    /// "?" question mark for answer.
-    private static let questionBadge: [String] = [
-        "SS.",
-        "..S",
-        ".S.",
-        "...",
-        ".S.",
-    ]
-
-    /// Checkmark for completed.
-    private static let checkBadge: [String] = [
-        "...",
-        "..S",
-        ".S.",
-        "S..",
-        "...",
-    ]
-
-    /// Magnifying glass for searching.
-    private static let searchBadge: [String] = [
-        "SS.",
-        "S.S",
-        "SS.",
-        "..S",
-        "...",
-    ]
+    private static let subagentPixelsA = parsePixels(subagentFrameA)
+    private static let subagentPixelsB = parsePixels(subagentFrameB)
+    private static let failedPixels = parsePixels(failedFrameA)
+    private static let interruptedPixels = parsePixels(interruptedFrameA)
+    private static let stalePixels = parsePixels(staleFrameA)
 
     private static let dotsBadgePixels = parsePixels(dotsBadgePattern)
     private static let lightningBadgePixels = parsePixels(lightningBadgePattern)
@@ -428,19 +524,28 @@ struct OpenIslandBrandMark: View {
     private static let exclamationBadgePixels = parsePixels(exclamationBadgePattern)
     private static let questionBadgePixels = parsePixels(questionBadgePattern)
     private static let checkBadgePixels = parsePixels(checkBadgePattern)
+    private static let codeBracketsBadgePixels = parsePixels(codeBracketsBadgePattern)
+    private static let forkBadgePixels = parsePixels(forkBadgePattern)
+    private static let crossBadgePixels = parsePixels(crossBadgePattern)
+    private static let pauseBadgePixels = parsePixels(pauseBadgePattern)
+    private static let zBadgePixels = parsePixels(zBadgePattern)
 
     /// The badge pixel pattern for the current phase, if any.
     var currentBadgePixels: [(x: Int, y: Int, role: Character)]? {
         switch phase {
         case .idle:                 return nil
         case .thinking:             return Self.dotsBadgePixels
-        case .coding:               return nil
+        case .coding:               return Self.codeBracketsBadgePixels
         case .runningCommand:       return Self.lightningBadgePixels
         case .searching:            return Self.searchBadgePixels
+        case .subagent:             return Self.forkBadgePixels
         case .waitingForApproval:   return Self.exclamationBadgePixels
         case .waitingForAnswer:     return Self.questionBadgePixels
         case .completed:            return Self.checkBadgePixels
         case .compacting:           return nil
+        case .failed:               return Self.crossBadgePixels
+        case .interrupted:          return Self.pauseBadgePixels
+        case .stale:                return Self.zBadgePixels
         }
     }
 
@@ -461,6 +566,8 @@ struct OpenIslandBrandMark: View {
             return animationFrame ? Self.commandPixelsB : Self.commandPixelsA
         case .searching:
             return animationFrame ? Self.searchingPixelsB : Self.searchingPixelsA
+        case .subagent:
+            return animationFrame ? Self.subagentPixelsB : Self.subagentPixelsA
         case .waitingForApproval:
             return animationFrame ? Self.approvalPixelsB : Self.approvalPixelsA
         case .waitingForAnswer:
@@ -469,6 +576,12 @@ struct OpenIslandBrandMark: View {
             return animationFrame ? Self.completedPixelsB : Self.completedPixelsA
         case .compacting:
             return animationFrame ? Self.compactingPixelsB : Self.compactingPixelsA
+        case .failed:
+            return Self.failedPixels
+        case .interrupted:
+            return Self.interruptedPixels
+        case .stale:
+            return Self.stalePixels
         }
     }
 
@@ -514,8 +627,6 @@ struct OpenIslandBrandMark: View {
 
         let frameDuration: Double
         switch phase {
-        case .idle:
-            frameDuration = 1.2          // slow gentle sway
         case .thinking:
             frameDuration = 0.8          // sparkle flicker
         case .coding:
@@ -524,14 +635,17 @@ struct OpenIslandBrandMark: View {
             frameDuration = 0.4          // ghost wave
         case .searching:
             frameDuration = 0.7          // looking around
+        case .subagent:
+            frameDuration = 0.6          // alternating arms
         case .waitingForApproval:
             frameDuration = 0.6          // waving arms
         case .waitingForAnswer:
             frameDuration = 0.8          // ear twitch
-        case .completed:
-            frameDuration = 0.9          // sparkle celebration
         case .compacting:
             frameDuration = 0.6          // hourglass flip
+        case .idle, .completed, .failed, .interrupted, .stale:
+            // Handled by the `guard phase.isAnimated` above — unreachable here.
+            return
         }
 
         withAnimation(.easeInOut(duration: frameDuration).repeatForever(autoreverses: true)) {
@@ -558,8 +672,15 @@ struct OpenIslandBrandMark: View {
                 // Wink/closed eye — lighter than normal eye.
                 return tint.opacity(0.5)
             case "G":
-                // Happy eye — green tint for completed state.
-                return Color.green.opacity(0.9)
+                // Accent pixel. Green for the happy/completed state; for the
+                // failed/interrupted states we tint it red so a frown or stop
+                // bar stands out against the tinted body.
+                switch phase {
+                case .failed, .interrupted:
+                    return Color.red.opacity(0.85)
+                default:
+                    return Color.green.opacity(0.9)
+                }
             case "S":
                 // Badge symbol pixel — bright white for maximum contrast.
                 return .white.opacity(0.95)
