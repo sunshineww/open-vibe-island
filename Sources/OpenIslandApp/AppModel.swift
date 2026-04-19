@@ -1185,11 +1185,14 @@ final class AppModel {
     }
 
     /// Called from the Claude transcript watcher when a user-interrupt
-    /// sentinel (`[Request interrupted by user for tool use]`) is
-    /// detected in a live session's JSONL. Claude Code fires no hook
-    /// for Esc, so this file-level signal is our only real-time route
-    /// to `.interrupted`. We only honour it while the session is still
-    /// `.running` — otherwise the sentinel is historical.
+    /// sentinel is detected in a live session's JSONL. Claude Code
+    /// writes one of two variants on Esc, both of which the watcher
+    /// matches: `[Request interrupted by user]` (streaming abort) or
+    /// `[Request interrupted by user for tool use]` (tool abort).
+    /// Neither path fires any hook, so this file-level signal is our
+    /// only real-time route to `.interrupted`. We only honour it while
+    /// the session is still `.running` — otherwise the sentinel is
+    /// historical (e.g. re-observed on restart) and we ignore it.
     func handleClaudeTranscriptInterrupt(sessionID: String) {
         guard let session = state.session(id: sessionID),
               session.tool == .claudeCode,

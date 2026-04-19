@@ -762,12 +762,14 @@ public final class BridgeServer: @unchecked Sendable {
 
             // `PostToolUseFailure` fires for tool-level errors while
             // the turn is still alive. Route interrupt-flagged payloads
-            // to `.interrupted` defensively, but note: Claude Code
-            // actually *skips* hook dispatch entirely on user-Esc
-            // interrupts (query.ts bails out at `aborted_tools` before
-            // any post-tool hooks run). The real Esc detection happens
-            // on the next `UserPromptSubmit` below, where we look for
-            // orphaned in-flight tool contexts.
+            // to `.interrupted` defensively — but note that Claude Code
+            // *skips* hook dispatch entirely on user-Esc interrupts
+            // (query.ts bails at `aborted_tools`/`aborted_streaming`
+            // before any post-tool hooks run). Real-time Esc detection
+            // is owned by `ClaudeTranscriptInterruptWatcher`, which
+            // tails the JSONL transcript for the interrupt sentinel.
+            // This branch only catches genuine tool-level failures that
+            // happen to carry `is_interrupt: true`.
             if payload.isInterrupt == true {
                 emit(
                     .sessionCompleted(

@@ -38,10 +38,19 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
 
     private struct Observation {
         let sessionID: String
-        let path: String
+        /// The path advertised by the caller (typically from the hook
+        /// payload's `transcript_path`). Used for equality checks when
+        /// `sync()` is called again, so we don't rebuild the observer
+        /// every tick just because the resolved path differs from the
+        /// path Claude Code originally reported (see worktree caveat in
+        /// `resolveTranscriptPath`).
+        let preferredPath: String
+        /// The path actually being tailed — may differ from
+        /// `preferredPath` when the fallback resolver had to hunt for
+        /// the canonical JSONL location.
+        let resolvedPath: String
         var offset: UInt64
         var pendingBuffer: Data
-        let fd: Int32
         let source: DispatchSourceFileSystemObject
     }
 
@@ -72,9 +81,13 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
     private func syncLocked(targets: [ClaudeTranscriptInterruptTarget]) {
         let targetMap = Dictionary(uniqueKeysWithValues: targets.map { ($0.sessionID, $0) })
 
-        // Drop observations whose path changed or whose session went away.
+        // Drop observations whose preferred path changed (caller is
+        // pointing at a different transcript) or whose session went
+        // away. Compare against `preferredPath` — not `resolvedPath` —
+        // so the fallback-resolved path doesn't trick us into tearing
+        // down and rebuilding the same watcher every sync tick.
         for (sessionID, observation) in observations {
-            if let target = targetMap[sessionID], target.transcriptPath == observation.path {
+            if let target = targetMap[sessionID], target.transcriptPath == observation.preferredPath {
                 continue
             }
             observation.source.cancel()
@@ -122,10 +135,10 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
 
         return Observation(
             sessionID: sessionID,
-            path: resolvedPath,
+            preferredPath: target.transcriptPath,
+            resolvedPath: resolvedPath,
             offset: initialOffset,
             pendingBuffer: Data(),
-            fd: fd,
             source: source
         )
     }
@@ -135,15 +148,22 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
             return preferred
         }
 
-        let projectsRoot = NSHomeDirectory() + "/.claude/projects"
+        // Honour user-customised Claude config directories (UserDefaults
+        // / CLAUDE_CONFIG_DIR) — otherwise a user with a relocated
+        // `.claude` would see interrupt detection silently stop working.
+        let projectsRoot = ClaudeConfigDirectory.resolved()
+            .appendingPathComponent("projects", isDirectory: true)
         let fileManager = FileManager.default
-        guard let entries = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
+        guard let entries = try? fileManager.contentsOfDirectory(atPath: projectsRoot.path) else {
             return preferred
         }
 
         let filename = "\(sessionID).jsonl"
         for entry in entries {
-            let candidate = "\(projectsRoot)/\(entry)/\(filename)"
+            let candidate = projectsRoot
+                .appendingPathComponent(entry, isDirectory: true)
+                .appendingPathComponent(filename)
+                .path
             if fileManager.fileExists(atPath: candidate) {
                 return candidate
             }
@@ -165,7 +185,7 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
             return
         }
 
-        let fileURL = URL(fileURLWithPath: observation.path)
+        let fileURL = URL(fileURLWithPath: observation.resolvedPath)
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
             return
         }
