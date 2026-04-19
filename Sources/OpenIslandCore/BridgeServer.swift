@@ -711,34 +711,67 @@ public final class BridgeServer: @unchecked Sendable {
                 )
             }
 
-            let summary = {
-                if payload.toolName == "AskUserQuestion" {
-                    return "\(payload.resolvedAgentTool.displayName) captured your answers."
+            // Detect user-interrupted Bash. Claude Code's BashTool
+            // handles Esc/Ctrl+C by returning "success with the
+            // `interrupted: true` flag" instead of throwing, which
+            // means no Stop/StopFailure hook fires at all for the
+            // interrupt (query.ts returns `aborted_tools` before the
+            // stop-hook path runs). This PostToolUse payload is the
+            // *only* signal we get that the user aborted a bash
+            // command, so we upgrade it to a sessionCompleted event
+            // with isInterrupt=true and let SessionState route it to
+            // the .interrupted phase (orange red-bar scout).
+            let bashInterrupted: Bool = {
+                guard payload.toolName == "Bash",
+                      case let .object(obj) = payload.toolResponse,
+                      case let .boolean(value) = obj["interrupted"] else {
+                    return false
                 }
-
-                if let preview = payload.toolResponsePreview,
-                   let toolName = payload.toolName {
-                    return "\(toolName) finished: \(preview)"
-                }
-
-                if let toolName = payload.toolName {
-                    return "\(toolName) finished."
-                }
-
-                return payload.implicitStartSummary
+                return value
             }()
 
-            emit(
-                .activityUpdated(
-                    SessionActivityUpdated(
-                        sessionID: payload.sessionID,
-                        summary: summary,
-                        phase: .running,
-                        timestamp: .now
+            if bashInterrupted {
+                emit(
+                    .sessionCompleted(
+                        SessionCompleted(
+                            sessionID: payload.sessionID,
+                            summary: "Bash interrupted by user.",
+                            timestamp: .now,
+                            isInterrupt: true
+                        )
                     )
                 )
-            )
-            send(.response(.acknowledged), to: clientID)
+                send(.response(.acknowledged), to: clientID)
+            } else {
+                let summary = {
+                    if payload.toolName == "AskUserQuestion" {
+                        return "\(payload.resolvedAgentTool.displayName) captured your answers."
+                    }
+
+                    if let preview = payload.toolResponsePreview,
+                       let toolName = payload.toolName {
+                        return "\(toolName) finished: \(preview)"
+                    }
+
+                    if let toolName = payload.toolName {
+                        return "\(toolName) finished."
+                    }
+
+                    return payload.implicitStartSummary
+                }()
+
+                emit(
+                    .activityUpdated(
+                        SessionActivityUpdated(
+                            sessionID: payload.sessionID,
+                            summary: summary,
+                            phase: .running,
+                            timestamp: .now
+                        )
+                    )
+                )
+                send(.response(.acknowledged), to: clientID)
+            }
 
         case .postToolUseFailure:
             clearStaleClaudeInteractionIfNeeded(for: payload.sessionID)
