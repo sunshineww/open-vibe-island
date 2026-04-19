@@ -1,10 +1,18 @@
 import Foundation
 
 /// Identifies a Claude session whose JSONL transcript we want to tail for
-/// user-interrupt markers (`[Request interrupted by user for tool use]`).
-/// Claude Code 2.1.x writes this sentinel *synchronously* on Esc at a
-/// point where no hook fires (query.ts bails with `aborted_tools`), so
-/// the file is the only low-latency signal we have.
+/// user-interrupt markers. Claude Code 2.1.x writes one of two sentinels
+/// *synchronously* on Esc at a point where no hook fires (query.ts
+/// bails with `aborted_tools` / `aborted_streaming`), so the file is
+/// the only low-latency signal we have:
+///
+/// - `[Request interrupted by user for tool use]` — Esc while a tool
+///   is executing (utils/messages.ts: `INTERRUPT_MESSAGE_FOR_TOOL_USE`).
+/// - `[Request interrupted by user]` — Esc while the model is
+///   streaming a response (utils/messages.ts: `INTERRUPT_MESSAGE`).
+///
+/// We match the common prefix `[Request interrupted by user` to cover
+/// both without missing either variant.
 public struct ClaudeTranscriptInterruptTarget: Equatable, Sendable {
     public let sessionID: String
     public let transcriptPath: String
@@ -20,7 +28,11 @@ public struct ClaudeTranscriptInterruptTarget: Equatable, Sendable {
 /// on disk. Intentionally narrow: we do not reconstruct the full
 /// transcript, only scan appended bytes for the marker.
 public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
-    public static let interruptMarker = "[Request interrupted by user for tool use]"
+    /// Shared prefix of both `INTERRUPT_MESSAGE` and
+    /// `INTERRUPT_MESSAGE_FOR_TOOL_USE`. Matching the prefix keeps the
+    /// watcher working across the streaming-abort and tool-abort paths,
+    /// and is resilient to Claude Code appending new suffixes later.
+    public static let interruptMarker = "[Request interrupted by user"
 
     public var onInterrupt: (@Sendable (String) -> Void)?
 
@@ -77,7 +89,14 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
     }
 
     private func makeObservation(for target: ClaudeTranscriptInterruptTarget) -> Observation? {
-        let fd = open(target.transcriptPath, O_RDONLY | O_EVTONLY)
+        // Claude Code 2.1.114 reports `transcript_path` in hook payloads
+        // using the CWD-derived flattened directory (including worktree
+        // suffix like `--claude-worktrees-<branch>`), but *actually*
+        // writes the JSONL to the canonical project directory. Resolve
+        // to whichever file exists on disk — prefer the reported path,
+        // then fall back to globbing `~/.claude/projects/*/<uuid>.jsonl`.
+        let resolvedPath = resolveTranscriptPath(preferred: target.transcriptPath, sessionID: target.sessionID)
+        let fd = open(resolvedPath, O_RDONLY | O_EVTONLY)
         guard fd >= 0 else {
             return nil
         }
@@ -103,12 +122,34 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
 
         return Observation(
             sessionID: sessionID,
-            path: target.transcriptPath,
+            path: resolvedPath,
             offset: initialOffset,
             pendingBuffer: Data(),
             fd: fd,
             source: source
         )
+    }
+
+    private func resolveTranscriptPath(preferred: String, sessionID: String) -> String {
+        if FileManager.default.fileExists(atPath: preferred) {
+            return preferred
+        }
+
+        let projectsRoot = NSHomeDirectory() + "/.claude/projects"
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
+            return preferred
+        }
+
+        let filename = "\(sessionID).jsonl"
+        for entry in entries {
+            let candidate = "\(projectsRoot)/\(entry)/\(filename)"
+            if fileManager.fileExists(atPath: candidate) {
+                return candidate
+            }
+        }
+
+        return preferred
     }
 
     private func handleFileEvent(sessionID: String) {
