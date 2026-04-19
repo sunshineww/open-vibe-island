@@ -181,7 +181,7 @@ extension AgentSession {
             return nil
         }
 
-        return "You: \(prompt)"
+        return prompt
     }
 
     var notificationHeaderPromptLineText: String? {
@@ -212,7 +212,13 @@ extension AgentSession {
             if let activity = spotlightRunningActivityText {
                 return activity
             }
-            return spotlightPromptLineText == nil ? "Running" : "Input"
+            // When the agent is thinking between tool calls, the prompt
+            // line above already shows the user's input — emitting an
+            // "Input" activity line next to it was redundant and read
+            // as a label without a value. Collapse the activity line
+            // in that case. Only fall back to a state string when
+            // there is no prompt line to anchor the row.
+            return spotlightPromptLineText == nil ? "Thinking…" : nil
         case .waitingForApproval:
             return permissionRequest?.summary.trimmedForSurface ?? "Approval needed"
         case .waitingForAnswer:
@@ -366,6 +372,9 @@ extension AgentSession {
 
 private extension String {
     var trimmedForSurface: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
+        // Delegate to the shared sanitizer so pseudo-tags and image
+        // placeholders are stripped consistently across every island
+        // surface (notification card, session row, completion body).
+        sanitizedForIslandDisplay
     }
 }

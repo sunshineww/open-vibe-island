@@ -140,7 +140,7 @@
 "island.hint.installHooks" = "尚未安装任何 Agent hook，session 不会触发事件 · 点击配置";
 
 /* Island Panel - Session List */
-"island.showAll" = "显示全部 %lld 个会话";
+"island.showAll" = "← 返回 · %lld 个会话";
 "island.collapseList" = "收起列表";
 "island.usageWaiting" = "等待用量数据";
 

@@ -140,7 +140,7 @@
 "island.hint.installHooks" = "No agent hooks installed — sessions won't surface events. Tap to set up.";
 
 /* Island Panel - Session List */
-"island.showAll" = "Show all %lld sessions";
+"island.showAll" = "← Back · %lld sessions";
 "island.collapseList" = "Collapse list";
 "island.usageWaiting" = "Usage waiting";
 

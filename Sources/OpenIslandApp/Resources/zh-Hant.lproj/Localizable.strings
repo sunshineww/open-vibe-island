@@ -140,7 +140,7 @@
 "island.hint.installHooks" = "尚未安裝任何 Agent hook，工作階段不會觸發事件 · 點擊設定";
 
 /* Island Panel - Session List */
-"island.showAll" = "顯示全部 %lld 個工作階段";
+"island.showAll" = "← 返回 · %lld 個工作階段";
 "island.collapseList" = "收起清單";
 "island.usageWaiting" = "等待用量資料";
 

@@ -848,27 +848,17 @@ struct IslandPanelView: View {
         let active = model.allSessions.filter { $0.phase == .running || $0.phase.requiresAttention }.count
         let total = model.allSessions.count
 
-        return HStack(spacing: 6) {
-            OpenIslandBrandMark(
-                size: 12,
-                tint: active > 0 ? .mint : .white.opacity(0.5),
-                isAnimating: active > 0,
-                phase: active > 0 ? .thinking : .idle,
-                style: .duotone
-            )
-
-            HStack(spacing: 0) {
-                Text("\(total)")
-                    .foregroundStyle(.white.opacity(0.8))
-                Text(" sessions · ")
-                    .foregroundStyle(.white.opacity(0.35))
-                Text("\(active)")
-                    .foregroundStyle(active > 0 ? .mint : .white.opacity(0.5))
-                Text(" active")
-                    .foregroundStyle(active > 0 ? .mint.opacity(0.7) : .white.opacity(0.35))
-            }
-            .font(.system(size: 10.5, weight: .medium))
+        return HStack(spacing: 0) {
+            Text("\(total)")
+                .foregroundStyle(.white.opacity(0.8))
+            Text(" sessions · ")
+                .foregroundStyle(.white.opacity(0.35))
+            Text("\(active)")
+                .foregroundStyle(active > 0 ? .mint : .white.opacity(0.5))
+            Text(" active")
+                .foregroundStyle(active > 0 ? .mint.opacity(0.7) : .white.opacity(0.35))
         }
+        .font(.system(size: 10.5, weight: .medium))
         .lineLimit(1)
     }
 
@@ -1566,7 +1556,12 @@ private struct IslandSessionRow: View {
 
     private var completionActionBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Terminal-style prompt line
+            // Terminal-style prompt line. The "● DONE" neon badge that
+            // used to live at the trailing edge has been removed — the
+            // scout body + check-mark badge at the top of the row
+            // already communicates "completed", and doubling it up just
+            // added visual noise. The `>` glyph itself is enough to
+            // identify this block as the user prompt.
             HStack(alignment: .top, spacing: 8) {
                 Text(">")
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
@@ -1579,48 +1574,23 @@ private struct IslandSessionRow: View {
                     .lineLimit(2)
 
                 Spacer(minLength: 8)
-
-                // Neon status badge
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(actionableStatusTint)
-                        .frame(width: 5, height: 5)
-                        .shadow(color: actionableStatusTint.opacity(0.8), radius: 4)
-
-                    Text(lang.t("completion.done").uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(actionableStatusTint)
-                        .shadow(color: actionableStatusTint.opacity(0.5), radius: 3)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(actionableStatusTint.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(actionableStatusTint.opacity(0.25))
-                )
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
-            // Circuit-line divider
-            ZStack {
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [.clear, actionableStatusTint.opacity(0.2), actionableStatusTint.opacity(0.1), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
+            // Circuit-line divider. The decorative centre dot that used
+            // to ride on top of the gradient read as a button / time
+            // marker and confused users; a plain gradient line conveys
+            // "separator" without any extra meaning.
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, actionableStatusTint.opacity(0.2), actionableStatusTint.opacity(0.1), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
-                    .frame(height: 1)
-
-                Circle()
-                    .fill(actionableStatusTint.opacity(0.6))
-                    .frame(width: 4, height: 4)
-                    .shadow(color: actionableStatusTint.opacity(0.5), radius: 3)
-            }
+                )
+                .frame(height: 1)
 
             AutoHeightScrollView(maxHeight: 260) {
                 Markdown(completionMessageText)
@@ -1696,10 +1666,14 @@ private struct IslandSessionRow: View {
     // MARK: - Actionable helpers
 
     private var completionPromptLabel: String {
+        // The surrounding layout already paints a green `>` prompt glyph,
+        // so tacking a "You:" prefix onto the text is redundant (and in
+        // zh-* locales it sat there untranslated). Just return the
+        // sanitized prompt; if there is no prompt we render nothing.
         if let prompt = session.latestUserPromptText?.trimmedForNotificationCard, !prompt.isEmpty {
-            return "You: \(prompt)"
+            return prompt
         }
-        return "You:"
+        return ""
     }
 
     private var completionMessageText: String {
@@ -1817,7 +1791,7 @@ private struct IslandSessionRow: View {
     /// Prompt line for manually expanded inactive rows (bypasses time-based filter).
     private var expandedPromptLineText: String? {
         guard isManuallyExpanded, let prompt = session.spotlightPromptText else { return nil }
-        return "You: \(prompt)"
+        return prompt
     }
 
     /// Activity line for manually expanded inactive rows (bypasses time-based filter).
@@ -2109,7 +2083,10 @@ private struct ReplyTextField: NSViewRepresentable {
 
 private extension String {
     var trimmedForNotificationCard: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
+        // Delegate to the shared sanitizer so pseudo-tags and image
+        // placeholders are stripped consistently across every island
+        // surface (notification card, session row, completion body).
+        sanitizedForIslandDisplay
     }
 }
 
