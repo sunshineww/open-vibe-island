@@ -603,7 +603,8 @@ public final class BridgeServer: @unchecked Sendable {
             let orphanedToolKeys = pendingClaudeToolContexts.keys.filter {
                 $0.hasPrefix(sessionKeyPrefix)
             }
-            if !orphanedToolKeys.isEmpty {
+            let wasInterrupted = !orphanedToolKeys.isEmpty
+            if wasInterrupted {
                 for key in orphanedToolKeys {
                     pendingClaudeToolContexts.removeValue(forKey: key)
                 }
@@ -619,16 +620,25 @@ public final class BridgeServer: @unchecked Sendable {
                 )
             }
 
-            emit(
-                .activityUpdated(
-                    SessionActivityUpdated(
-                        sessionID: payload.sessionID,
-                        summary: payload.promptPreview.map { "Prompt: \($0)" } ?? payload.implicitStartSummary,
-                        phase: .running,
-                        timestamp: .now
+            // When we just flashed `.interrupted`, hold that phase so
+            // the user can see the orange red-bar scout. The next real
+            // turn activity (PreToolUse, PostToolUse, or a new
+            // assistant message surfaced by the transcript watcher)
+            // will naturally flip the session back to `.running`.
+            // Skipping the running-transition here avoids overwriting
+            // the interrupt signal within the same event loop tick.
+            if !wasInterrupted {
+                emit(
+                    .activityUpdated(
+                        SessionActivityUpdated(
+                            sessionID: payload.sessionID,
+                            summary: payload.promptPreview.map { "Prompt: \($0)" } ?? payload.implicitStartSummary,
+                            phase: .running,
+                            timestamp: .now
+                        )
                     )
                 )
-            )
+            }
             send(.response(.acknowledged), to: clientID)
 
         case .preToolUse:
