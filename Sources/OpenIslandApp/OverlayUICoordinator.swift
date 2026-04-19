@@ -98,6 +98,13 @@ final class OverlayUICoordinator {
     }
 
     func notchOpen(reason: NotchOpenReason, surface: IslandSurface = .sessionList()) {
+        if reason == .notification, surface.isNotificationCard {
+            traceNotificationSurface(
+                stage: "overlay.notch_open_notification",
+                surface: surface
+            )
+        }
+
         transitionOverlay(
             to: .opened,
             reason: reason,
@@ -117,6 +124,13 @@ final class OverlayUICoordinator {
     }
 
     func notchClose() {
+        if notchOpenReason == .notification, islandSurface.isNotificationCard {
+            traceNotificationSurface(
+                stage: "overlay.notch_close_notification",
+                surface: islandSurface
+            )
+        }
+
         transitionOverlay(
             to: .closed,
             reason: nil,
@@ -302,6 +316,10 @@ final class OverlayUICoordinator {
             return
         }
 
+        traceNotificationSurface(
+            stage: "overlay.present_notification_surface",
+            surface: surface
+        )
         NotificationSoundService.playNotification(isMuted: isSoundMuted)
         notchOpen(reason: .notification, surface: surface)
     }
@@ -312,6 +330,11 @@ final class OverlayUICoordinator {
         }
 
         let session = activeIslandCardSession
+        traceNotificationSurface(
+            stage: "overlay.reconcile_notification_surface",
+            surface: islandSurface,
+            session: session
+        )
         guard islandSurface.matchesCurrentState(of: session) else {
             if notchOpenReason == .notification {
                 notchClose()
@@ -369,6 +392,30 @@ final class OverlayUICoordinator {
 
             self.notchClose()
         }
+    }
+
+    private func traceNotificationSurface(
+        stage: String,
+        surface: IslandSurface,
+        session: AgentSession? = nil
+    ) {
+        let activeSession = session ?? activeIslandCardSession
+        let matchedState = surface.matchesCurrentState(of: activeSession)
+
+        CodexHookTraceLogger.log(
+            process: "OverlayUICoordinator",
+            stage: stage,
+            fields: [
+                "surfaceSessionID": surface.sessionID,
+                "surfaceIsNotificationCard": surface.isNotificationCard ? "true" : "false",
+                "notchStatus": String(describing: notchStatus),
+                "notchOpenReason": notchOpenReason.map { String(describing: $0) },
+                "activeSessionFound": activeSession == nil ? "false" : "true",
+                "activeSessionPhase": activeSession.map { String(describing: $0.phase) },
+                "activeSessionSummary": activeSession?.summary,
+                "matchesCurrentState": matchedState ? "true" : "false",
+            ]
+        )
     }
 
     // MARK: - Debug snapshots (overlay portion)

@@ -128,6 +128,7 @@ public final class LocalBridgeClient: @unchecked Sendable {
 
                     for message in messages {
                         if case let .event(event) = message {
+                            trace(event: event, stage: "observer.receive_event")
                             continuation?.yield(event)
                         }
                     }
@@ -167,5 +168,60 @@ public final class LocalBridgeClient: @unchecked Sendable {
         }
 
         continuation = nil
+    }
+
+    private func trace(event: AgentEvent, stage: String) {
+        var fields: [String: String?] = [
+            "socketPath": socketURL.path,
+        ]
+
+        switch event {
+        case let .sessionStarted(payload):
+            fields["eventType"] = "sessionStarted"
+            fields["sessionID"] = payload.sessionID
+        case let .activityUpdated(payload):
+            fields["eventType"] = "activityUpdated"
+            fields["sessionID"] = payload.sessionID
+        case let .permissionRequested(payload):
+            fields["eventType"] = "permissionRequested"
+            fields["sessionID"] = payload.sessionID
+            fields["summary"] = payload.request.summary
+        case let .questionAsked(payload):
+            fields["eventType"] = "questionAsked"
+            fields["sessionID"] = payload.sessionID
+            fields["summary"] = payload.prompt.title
+        case let .sessionCompleted(payload):
+            fields["eventType"] = "sessionCompleted"
+            fields["sessionID"] = payload.sessionID
+            fields["summary"] = payload.summary
+        case let .jumpTargetUpdated(payload):
+            fields["eventType"] = "jumpTargetUpdated"
+            fields["sessionID"] = payload.sessionID
+        case let .sessionMetadataUpdated(payload):
+            fields["eventType"] = "sessionMetadataUpdated"
+            fields["sessionID"] = payload.sessionID
+        case let .claudeSessionMetadataUpdated(payload):
+            fields["eventType"] = "claudeSessionMetadataUpdated"
+            fields["sessionID"] = payload.sessionID
+        case let .geminiSessionMetadataUpdated(payload):
+            fields["eventType"] = "geminiSessionMetadataUpdated"
+            fields["sessionID"] = payload.sessionID
+        case let .openCodeSessionMetadataUpdated(payload):
+            fields["eventType"] = "openCodeSessionMetadataUpdated"
+            fields["sessionID"] = payload.sessionID
+        case let .cursorSessionMetadataUpdated(payload):
+            fields["eventType"] = "cursorSessionMetadataUpdated"
+            fields["sessionID"] = payload.sessionID
+        case let .actionableStateResolved(payload):
+            fields["eventType"] = "actionableStateResolved"
+            fields["sessionID"] = payload.sessionID
+            fields["summary"] = payload.summary
+        }
+
+        CodexHookTraceLogger.log(
+            process: "LocalBridgeClient",
+            stage: stage,
+            fields: fields
+        )
     }
 }

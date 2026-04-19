@@ -102,6 +102,17 @@ public final class BridgeServer: @unchecked Sendable {
                 listeners.append(legacyListener)
             }
         }
+
+        traceBridgeLifecycle(
+            stage: "bridge.start",
+            fields: [
+                "processID": String(getpid()),
+                "executablePath": CommandLine.arguments.first,
+                "primarySocketPath": socketURL.path,
+                "legacySocketPath": legacyURL.path,
+                "listenerCount": String(listeners.count),
+            ]
+        )
     }
 
     private func bindListener(at url: URL) throws -> Listener {
@@ -149,6 +160,14 @@ public final class BridgeServer: @unchecked Sendable {
         }
         source.resume()
 
+        traceBridgeLifecycle(
+            stage: "bridge.listen_socket",
+            fields: [
+                "socketPath": url.path,
+                "processID": String(getpid()),
+            ]
+        )
+
         return Listener(fileDescriptor: fd, acceptSource: source, socketURL: url)
     }
 
@@ -172,6 +191,18 @@ public final class BridgeServer: @unchecked Sendable {
     }
 
     private func stopLocked() {
+        traceBridgeLifecycle(
+            stage: "bridge.stop",
+            fields: [
+                "clientCount": String(clients.count),
+                "listenerCount": String(listeners.count),
+                "pendingApprovalCount": String(pendingApprovals.count),
+                "pendingClaudeInteractionCount": String(pendingClaudeInteractions.count),
+                "pendingOpenCodeInteractionCount": String(pendingOpenCodeInteractions.count),
+                "pendingCursorInteractionCount": String(pendingCursorInteractions.count),
+            ]
+        )
+
         pendingApprovals.removeAll()
         pendingClaudeInteractions.removeAll()
         pendingClaudeToolContexts.removeAll()
@@ -242,6 +273,15 @@ public final class BridgeServer: @unchecked Sendable {
         )
         readSource.resume()
 
+        traceBridgeClient(
+            stage: "bridge.client_connected",
+            clientID: clientID,
+            extraFields: [
+                "clientCount": String(clients.count),
+                "fileDescriptor": String(fileDescriptor),
+            ]
+        )
+
         send(.hello(BridgeHello()), to: clientID)
     }
 
@@ -299,6 +339,13 @@ public final class BridgeServer: @unchecked Sendable {
 
             client.role = role
             clients[clientID] = client
+            traceBridgeClient(
+                stage: "bridge.client_registered",
+                clientID: clientID,
+                extraFields: [
+                    "role": role.rawValue,
+                ]
+            )
             send(.response(.acknowledged), to: clientID)
 
         case let .requestQuestion(sessionID, prompt):
@@ -2554,6 +2601,32 @@ public final class BridgeServer: @unchecked Sendable {
         }
     }
 
+    private func traceBridgeLifecycle(
+        stage: String,
+        fields: [String: String?] = [:]
+    ) {
+        CodexHookTraceLogger.log(
+            process: "BridgeServer",
+            stage: stage,
+            fields: fields
+        )
+    }
+
+    private func traceBridgeClient(
+        stage: String,
+        clientID: UUID,
+        extraFields: [String: String?] = [:]
+    ) {
+        var fields: [String: String?] = [
+            "clientID": clientID.uuidString,
+        ]
+        for (key, value) in extraFields {
+            fields[key] = value
+        }
+
+        traceBridgeLifecycle(stage: stage, fields: fields)
+    }
+
     private func emit(_ event: AgentEvent) {
         localState.apply(event)
         broadcast([.event(event)])
@@ -2590,6 +2663,15 @@ public final class BridgeServer: @unchecked Sendable {
         guard let client = clients.removeValue(forKey: clientID) else {
             return
         }
+
+        traceBridgeClient(
+            stage: "bridge.client_disconnected",
+            clientID: clientID,
+            extraFields: [
+                "clientCount": String(clients.count),
+                "fileDescriptor": String(client.fileDescriptor),
+            ]
+        )
 
         let pendingSessionIDs = pendingApprovals.compactMap { entry -> String? in
             let (sessionID, pendingApproval) = entry

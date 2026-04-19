@@ -82,6 +82,7 @@ struct CodexHookTraceLoggerTests {
                 "sessionID": "session-3",
             ],
             environment: [
+                CodexHookTraceLogger.enabledEnvironmentKey: "0",
                 CodexHookTraceLogger.pathEnvironmentKey: logURL.path,
             ]
         )

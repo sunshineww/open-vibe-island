@@ -35,11 +35,13 @@ struct OpenIslandHooksCLI {
                 return
             }
 
+            let environment = ProcessInfo.processInfo.environment
             let arguments = Array(CommandLine.arguments.dropFirst())
             let source = hookSource(arguments: arguments)
             let sourceString = rawSourceString(arguments: arguments)
             let decoder = JSONDecoder()
-            let client = BridgeCommandClient(socketURL: BridgeSocketLocation.currentURL())
+            let socketURL = BridgeSocketLocation.currentURL(environment: environment)
+            let client = BridgeCommandClient(socketURL: socketURL)
 
             switch source {
             case .codex:
@@ -56,6 +58,11 @@ struct OpenIslandHooksCLI {
                     stage: "cli.receive",
                     payload: payload,
                     extraFields: [
+                        "hookBinaryPath": CommandLine.arguments.first,
+                        "hookSource": source.rawValue,
+                        "processID": String(getpid()),
+                        "parentProcessID": String(getppid()),
+                        "socketPath": socketURL.path,
                         "timeoutSeconds": String(Int(timeout)),
                     ]
                 )
@@ -70,7 +77,9 @@ struct OpenIslandHooksCLI {
                             payload: payload,
                             extraFields: [
                                 "elapsedMs": elapsedMilliseconds,
+                                "hookBinaryPath": CommandLine.arguments.first,
                                 "response": bridgeResponseSummary(response),
+                                "socketPath": socketURL.path,
                                 "timeoutSeconds": String(Int(timeout)),
                             ]
                         )
@@ -84,6 +93,8 @@ struct OpenIslandHooksCLI {
                             payload: payload,
                             extraFields: [
                                 "elapsedMs": elapsedMilliseconds,
+                                "hookBinaryPath": CommandLine.arguments.first,
+                                "socketPath": socketURL.path,
                                 "timeoutSeconds": String(Int(timeout)),
                             ]
                         )
@@ -95,6 +106,8 @@ struct OpenIslandHooksCLI {
                         extraFields: [
                             "elapsedMs": String(Int(Date().timeIntervalSince(startedAt) * 1000)),
                             "error": String(describing: error),
+                            "hookBinaryPath": CommandLine.arguments.first,
+                            "socketPath": socketURL.path,
                             "timeoutSeconds": String(Int(timeout)),
                         ]
                     )

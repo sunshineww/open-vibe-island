@@ -71,6 +71,12 @@ final class OverlayPanelController {
         self.panel = panel
         let diagnostics = positionPanel(panel, preferredScreenID: preferredScreenID, animated: true)
         presentPanel(panel, activates: Self.shouldActivatePanel(for: model.notchOpenReason))
+        tracePanelPresentation(
+            stage: "overlay_panel.show",
+            panel: panel,
+            diagnostics: diagnostics,
+            model: model
+        )
         panel.ignoresMouseEvents = false
         panel.acceptsMouseMovedEvents = true
         startEventMonitoring()
@@ -181,6 +187,31 @@ final class OverlayPanelController {
         } else {
             panel.orderFrontRegardless()
         }
+    }
+
+    private func tracePanelPresentation(
+        stage: String,
+        panel: NSPanel,
+        diagnostics: OverlayPlacementDiagnostics?,
+        model: AppModel
+    ) {
+        CodexHookTraceLogger.log(
+            process: "OverlayPanelController",
+            stage: stage,
+            fields: [
+                "notchOpenReason": model.notchOpenReason.map { String(describing: $0) },
+                "notchStatus": String(describing: model.notchStatus),
+                "surfaceSessionID": model.islandSurface.sessionID,
+                "panelVisible": panel.isVisible ? "true" : "false",
+                "panelFrame": NSStringFromRect(panel.frame),
+                "targetScreenName": diagnostics?.targetScreenName,
+                "selectionSummary": diagnostics?.selectionSummary,
+                "placementMode": diagnostics?.modeDescription,
+                "overlayFrame": diagnostics?.overlayFrameDescription,
+                "screenFrame": diagnostics?.screenFrameDescription,
+                "visibleFrame": diagnostics?.visibleFrameDescription,
+            ]
+        )
     }
 
     private func computeNotchRect(screen: NSScreen?) {
