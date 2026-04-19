@@ -505,7 +505,7 @@ struct SessionStateTests {
     }
 
     @Test
-    func codexPermissionRequestStillRequiresResolutionWhenHookArrivesInDontAskMode() async throws {
+    func codexPermissionRequestAutoAllowsInDontAskMode() async throws {
         let socketURL = BridgeSocketLocation.uniqueTestURL()
         let server = BridgeServer(socketURL: socketURL)
         try server.start()
@@ -535,17 +535,52 @@ struct SessionStateTests {
 
         var iterator = stream.makeAsyncIterator()
         let startedEvent = try await nextEvent(from: &iterator)
-        let permissionEvent = try await nextEvent(from: &iterator)
-
-        #expect(startedEvent.isSessionStarted)
-        #expect(permissionEvent.isPermissionRequested)
-
-        try await observer.send(.resolvePermission(sessionID: "codex-session-no-ask", resolution: .allowOnce()))
-
         let activityEvent = try await nextEvent(from: &iterator)
         let response = try await responseTask
 
-        #expect(activityEvent.activityUpdate?.summary == "Permission approved. Codex continued the command.")
+        #expect(startedEvent.isSessionStarted)
+        #expect(activityEvent.activityUpdate?.summary == "Running: ls")
+        #expect(activityEvent.activityUpdate?.phase == .running)
+        #expect(response == .acknowledged)
+    }
+
+    @Test
+    func codexPermissionRequestAutoAllowsInBypassPermissionsMode() async throws {
+        let socketURL = BridgeSocketLocation.uniqueTestURL()
+        let server = BridgeServer(socketURL: socketURL)
+        try server.start()
+        defer { server.stop() }
+
+        let observer = LocalBridgeClient(socketURL: socketURL)
+        let stream = try observer.connect()
+        defer { observer.disconnect() }
+        try await observer.send(.registerClient(role: .observer))
+
+        let payload = CodexHookPayload(
+            cwd: "/tmp/worktree",
+            hookEventName: .permissionRequest,
+            model: "gpt-5-codex",
+            permissionMode: .bypassPermissions,
+            sessionID: "codex-session-bypass",
+            terminalApp: "Ghostty",
+            terminalSessionID: "ghostty-session-1",
+            transcriptPath: nil,
+            turnID: "turn-1",
+            toolName: "Bash",
+            toolUseID: "tool-use-1",
+            toolInput: CodexHookToolInput(command: "rm -rf /tmp/scratch")
+        )
+
+        async let responseTask = sendOnGCDThread(.processCodexHook(payload), socketURL: socketURL)
+
+        var iterator = stream.makeAsyncIterator()
+        let startedEvent = try await nextEvent(from: &iterator)
+        let activityEvent = try await nextEvent(from: &iterator)
+        let response = try await responseTask
+
+        #expect(startedEvent.isSessionStarted)
+        #expect(activityEvent.activityUpdate?.summary == "Running: rm -rf /tmp/scratch")
+        #expect(activityEvent.activityUpdate?.phase == .running)
         #expect(response == .acknowledged)
     }
 

@@ -562,6 +562,28 @@ public final class BridgeServer: @unchecked Sendable {
 
             let command = payload.commandPreview ?? "Bash command"
 
+            // Codex still fires PreToolUse hooks under bypassPermissions /
+            // dontAsk (the mode that backs `codex --full-auto`) because the
+            // hook is informational, not a gate. Do not surface a blocking
+            // approval card in those modes — the user already opted out of
+            // per-command approvals. Update the activity line and let Codex
+            // proceed immediately.
+            if payload.permissionMode == .bypassPermissions
+                || payload.permissionMode == .dontAsk {
+                emit(
+                    .activityUpdated(
+                        SessionActivityUpdated(
+                            sessionID: payload.sessionID,
+                            summary: "Running: \(command)",
+                            phase: .running,
+                            timestamp: .now
+                        )
+                    )
+                )
+                send(.response(.acknowledged), to: clientID)
+                return
+            }
+
             let approvalEvent = AgentEvent.permissionRequested(
                 PermissionRequested(
                     sessionID: payload.sessionID,
