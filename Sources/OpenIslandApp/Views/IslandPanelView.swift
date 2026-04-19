@@ -193,12 +193,21 @@ struct IslandPanelView: View {
         return Self.displayToolName(toolName)
     }
 
-    /// When Claude is grinding through API retries, surface `"Retry N/M"`
-    /// in place of the tool label so the user can see why the turn looks
-    /// stuck. Paired with `closedRetryTint` for class-based colouring.
+    /// When Claude is grinding through API retries, surface
+    /// `"Retry <code> N/M"` in place of the tool label so the user can
+    /// see *why* the turn looks stuck. The code is the raw HTTP status
+    /// when available (`429`, `502`, `504`, `401`, …) or `net` when no
+    /// HTTP response came back (timeout / transport error). Paired with
+    /// `closedRetryTint` for class-based colouring.
     private var closedRetryLabel: String? {
         guard let status = closedRetryStatus else { return nil }
-        return "Retry \(status.attempt)/\(status.maxRetries)"
+        let codeToken: String
+        if let httpStatus = status.httpStatus {
+            codeToken = "\(httpStatus)"
+        } else {
+            codeToken = "net"
+        }
+        return "Retry \(codeToken) \(status.attempt)/\(status.maxRetries)"
     }
 
     /// Class-aware tint for the closed-notch retry pill. `.rateLimit`
