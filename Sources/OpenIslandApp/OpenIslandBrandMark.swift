@@ -111,7 +111,11 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 3. Coding: Square-head robot (frame A: arms down) ──
+    // ── 3. Coding: Square-head robot (frame A — eyes center, hands down) ──
+    //
+    // Both frames share the robot body but shift the eyes across rows —
+    // reads as the robot "scanning" a line of code rather than just
+    // stomping its feet (the old frames only differed in toe position).
     private static let codingFrameA: [String] = [
         ".B....B.",
         "BBBBBBBB",
@@ -123,11 +127,11 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 3. Coding: Square-head robot (frame B: arms out) ──
+    // ── 3. Coding: Square-head robot (frame B — eyes glance, hands out) ──
     private static let codingFrameB: [String] = [
         ".B....B.",
         "BBBBBBBB",
-        "BHEHBEHB",
+        "BEHHBHEB",
         "BHHHHHHB",
         "BBBBBBBB",
         "..BBBB..",
@@ -231,16 +235,17 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 8. Completed: Big smiley (frame A) ──
+    // ── 8. Completed: Crowned champion scout (frame A) ──
     //
-    // The old trophy silhouette was visually ambiguous at 14 px — its outline
-    // looked almost identical to the Space Invader idle sprite. This smiley
-    // uses a round dome top (..BBBB.. / .BBBBBB.) that reads very differently
-    // from idle's two-antenna top (..B..B..), plus green (G) accent pixels in
-    // the mouth so the "success" semantics are unmistakable even tiny.
+    // Iteration 3 on the "done" sprite. The first attempt (trophy) was
+    // unreadable at 14 px; the second (round smiley) collided visually
+    // with the failed frown and the idle invader. This version stamps a
+    // three-pointed crown onto the sprite — that silhouette is unique
+    // across the full scout set, so "session won" is unmistakable at a
+    // glance. The green (G) pixels carve a smiling mouth underneath.
     private static let completedFrameA: [String] = [
-        "..BBBB..",
-        ".BBBBBB.",
+        ".B.BB.B.",
+        "BBBBBBBB",
         "BBEBBEBB",
         "BBHHHHBB",
         "B.HGGH.B",
@@ -249,11 +254,16 @@ struct OpenIslandBrandMark: View {
         "..BBBB..",
     ]
 
-    // ── 8. Completed: Big smiley (frame B: wink) ──
+    // ── 8. Completed: Crowned champion scout (frame B — reserved) ──
+    //
+    // The completed phase is static (`isAnimated == false`), so frame B
+    // is never displayed; it is kept identical to frame A so that if we
+    // later add a one-shot celebration animation the data pipeline is
+    // ready without touching the renderer.
     private static let completedFrameB: [String] = [
-        "..BBBB..",
-        ".BBBBBB.",
-        "BBWBBEBB",
+        ".B.BB.B.",
+        "BBBBBBBB",
+        "BBEBBEBB",
         "BBHHHHBB",
         "B.HGGH.B",
         "B..GG..B",
@@ -261,60 +271,72 @@ struct OpenIslandBrandMark: View {
         "..BBBB..",
     ]
 
-    // ── 9. Compacting: Vortex creature (frame A: spin left) ──
+    // ── 9. Compacting: Hourglass (frame A — sand on top) ──
+    //
+    // The old vortex reused the running-command ghost silhouette too
+    // closely, so two different active states looked alike at 14 px. An
+    // hourglass reads unambiguously as "condensing / time passing" and
+    // gets a satisfying flip on frame B.
     private static let compactingFrameA: [String] = [
-        "BBBBBBB.",
-        ".BBBBBB.",
-        ".BHHHHB.",
-        "BBHEHEBB",
-        ".BHHHHB.",
-        "..BBBB..",
+        "BBBBBBBB",
+        ".BEEEEB.",
+        "..BEEB..",
         "...BB...",
-        "........",
+        "...BB...",
+        "..BHHB..",
+        ".BHHHHB.",
+        "BBBBBBBB",
     ]
 
-    // ── 9. Compacting: Vortex creature (frame B: spin right) ──
+    // ── 9. Compacting: Hourglass (frame B — sand falling to bottom) ──
     private static let compactingFrameB: [String] = [
-        ".BBBBBBB",
-        ".BBBBBB.",
+        "BBBBBBBB",
         ".BHHHHB.",
-        "BBHEHEBB",
-        ".BHHHHB.",
-        "..BBBB..",
+        "..BHHB..",
         "...BB...",
-        "........",
+        "...BB...",
+        "..BEEB..",
+        ".BEEEEB.",
+        "BBBBBBBB",
     ]
 
-    // ── 10. Subagent: Two linked scouts (frame A) ──
+    // ── 10. Subagent: Twin square-head robots (frame A — left leg step) ──
+    //
+    // Reads as a pair of coding-robots working side-by-side, which is
+    // much closer to what `Task` / sub-agent dispatch actually means.
+    // The old single-ghost-with-a-gap design was too abstract.
     private static let subagentFrameA: [String] = [
         ".B....B.",
-        "BBB..BBB",
-        "BEB..BEB",
-        "BHHBBHHB",
+        "BBBBBBBB",
+        "BEHBBHEB",
+        "BHHHHHHB",
         ".BBBBBB.",
-        ".B.BB.B.",
-        "B.B..B.B",
-        "........",
+        ".BBBBBB.",
+        "..B..B..",
+        ".B....B.",
     ]
 
-    // ── 10. Subagent: Two linked scouts (frame B: arms swap) ──
+    // ── 10. Subagent: Twin square-head robots (frame B — right leg step) ──
     private static let subagentFrameB: [String] = [
         ".B....B.",
-        "BBB..BBB",
-        "BEB..BEB",
-        "BHHBBHHB",
+        "BBBBBBBB",
+        "BHEBBEHB",
+        "BHHHHHHB",
         ".BBBBBB.",
-        "B.B..B.B",
-        ".B.BB.B.",
-        "........",
+        ".BBBBBB.",
+        ".B....B.",
+        "..B..B..",
     ]
 
-    // ── 11. Failed: Sad robot (single frame — phase is passive) ──
+    // ── 11. Failed: Cracked scout (single frame — phase is passive) ──
     //
-    // Uses G role (repurposed as red accent in failed tint) for the frowning
-    // mouth so the state reads as "something went wrong" at first glance.
+    // Cracking the top of the dome (..B..B.. instead of ..BBBB..) breaks
+    // the silhouette against the completed smiley, so the state is
+    // recognisable even before the red tint / frown register. The G
+    // pixels (recoloured red by `fillColor(for:)`) draw a frown in the
+    // mouth row.
     private static let failedFrameA: [String] = [
-        "..BBBB..",
+        "..B..B..",
         ".BBBBBB.",
         "BBEBBEBB",
         "BBHHHHBB",
@@ -336,15 +358,17 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 13. Stale: Sleeping scout (single frame) ──
+    // ── 13. Stale: Sleeping Space Invader (single frame) ──
     //
-    // Closed eyes + loose body to read as "idle / disconnected".
+    // Reuses the idle invader silhouette with eyes shut (W pixels) so it
+    // reads immediately as "the same session, just napping". The previous
+    // round-face "snoozing head" was too similar to completed / failed.
     private static let staleFrameA: [String] = [
+        "..B..B..",
         "..BBBB..",
-        ".BBBBBB.",
+        ".BHHHHB.",
         "BBWWWWBB",
-        "BBHHHHBB",
-        ".BBBBBB.",
+        ".BHHHHB.",
         "..BBBB..",
         ".B....B.",
         "........",
@@ -412,15 +436,20 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    /// ✓ checkmark
+    /// ✓ checkmark — a clean V that reads as "tick" even at 14 px.
+    ///
+    /// The left arm is 2 px, the right arm is 4 px, with the corner at
+    /// (3, 6). This is the ratio used on most emoji / system checkmark
+    /// glyphs; the previous pattern had a misaligned left arm that looked
+    /// more like a jagged W.
     private static let checkBadgePattern: [String] = [
+        "........",
         "........",
         ".......B",
         "......B.",
         ".....B..",
         ".B..B...",
         "..BB....",
-        "...B....",
         "........",
     ]
 
@@ -436,15 +465,17 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    /// ⎇ fork icon — subagent spawning.
+    /// ⑂ fork icon — a central stem that splits into a Y, reads as
+    /// "spawning sub-agents". The earlier pattern scattered pixels across
+    /// the grid and the branching was hard to identify at badge size.
     private static let forkBadgePattern: [String] = [
-        "....B...",
-        "...B.B..",
-        "..B...B.",
-        ".B.....B",
-        "B..B...B",
         "...B....",
         "...B....",
+        "...B....",
+        "..B.B...",
+        ".B...B..",
+        "B.....B.",
+        "B......B",
         "........",
     ]
 
