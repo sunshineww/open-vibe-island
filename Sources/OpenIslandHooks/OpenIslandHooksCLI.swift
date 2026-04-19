@@ -50,14 +50,56 @@ struct OpenIslandHooksCLI {
                 let timeout = payload.hookEventName == .preToolUse
                     ? Self.interactiveHookTimeout
                     : Self.standardHookTimeout
+                let startedAt = Date()
 
-                guard let response = try? client.send(.processCodexHook(payload), timeout: timeout) else {
+                traceCodexHook(
+                    stage: "cli.receive",
+                    payload: payload,
+                    extraFields: [
+                        "timeoutSeconds": String(Int(timeout)),
+                    ]
+                )
+
+                do {
+                    let response = try client.send(.processCodexHook(payload), timeout: timeout)
+                    let elapsedMilliseconds = String(Int(Date().timeIntervalSince(startedAt) * 1000))
+
+                    if let response {
+                        traceCodexHook(
+                            stage: "cli.response",
+                            payload: payload,
+                            extraFields: [
+                                "elapsedMs": elapsedMilliseconds,
+                                "response": bridgeResponseSummary(response),
+                                "timeoutSeconds": String(Int(timeout)),
+                            ]
+                        )
+
+                        if let output = try CodexHookOutputEncoder.standardOutput(for: response) {
+                            FileHandle.standardOutput.write(output)
+                        }
+                    } else {
+                        traceCodexHook(
+                            stage: "cli.responseEOF",
+                            payload: payload,
+                            extraFields: [
+                                "elapsedMs": elapsedMilliseconds,
+                                "timeoutSeconds": String(Int(timeout)),
+                            ]
+                        )
+                    }
+                } catch {
+                    traceCodexHook(
+                        stage: "cli.bridgeUnavailable",
+                        payload: payload,
+                        extraFields: [
+                            "elapsedMs": String(Int(Date().timeIntervalSince(startedAt) * 1000)),
+                            "error": String(describing: error),
+                            "timeoutSeconds": String(Int(timeout)),
+                        ]
+                    )
                     logStderr("bridge unavailable for codex hook (\(payload.hookEventName.rawValue))")
                     return
-                }
-
-                if let output = try CodexHookOutputEncoder.standardOutput(for: response) {
-                    FileHandle.standardOutput.write(output)
                 }
             case .claude, .qoder, .qwen, .factory, .droid, .codebuddy, .kimi:
                 var payload = try decoder
@@ -110,6 +152,41 @@ struct OpenIslandHooksCLI {
     private static func logStderr(_ message: String) {
         guard let data = "[OpenIslandHooks] \(message)\n".data(using: .utf8) else { return }
         FileHandle.standardError.write(data)
+    }
+
+    private static func traceCodexHook(
+        stage: String,
+        payload: CodexHookPayload,
+        extraFields: [String: String?] = [:]
+    ) {
+        var fields = CodexHookTraceLogger.payloadFields(for: payload)
+        for (key, value) in extraFields {
+            fields[key] = value
+        }
+
+        CodexHookTraceLogger.log(
+            process: "OpenIslandHooks",
+            stage: stage,
+            fields: fields
+        )
+    }
+
+    private static func bridgeResponseSummary(_ response: BridgeResponse) -> String {
+        switch response {
+        case .acknowledged:
+            "acknowledged"
+        case let .codexHookDirective(directive):
+            switch directive {
+            case .deny:
+                "codexHookDirective.deny"
+            }
+        case .claudeHookDirective:
+            "claudeHookDirective"
+        case .openCodeHookDirective:
+            "openCodeHookDirective"
+        case .cursorHookDirective:
+            "cursorHookDirective"
+        }
     }
 
     private static func hookSource(arguments: [String]) -> HookSource {

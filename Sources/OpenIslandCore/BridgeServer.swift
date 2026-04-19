@@ -370,6 +370,21 @@ public final class BridgeServer: @unchecked Sendable {
                 return
             }
 
+            let shouldTraceCodexResolution =
+                pendingApprovals[sessionID] != nil
+                || localState.session(id: sessionID)?.tool == .codex
+                || stateSnapshot.session(id: sessionID)?.tool == .codex
+            if shouldTraceCodexResolution {
+                traceCodexResolution(
+                    stage: "bridge.resolve_permission",
+                    sessionID: sessionID,
+                    resolution: resolution,
+                    extraFields: [
+                        "hadPendingApproval": pendingApprovals[sessionID] == nil ? "false" : "true",
+                    ]
+                )
+            }
+
             localState.resolvePermission(sessionID: sessionID, resolution: resolution)
             broadcast([.event(
                 resolution.isApproved
@@ -438,11 +453,20 @@ public final class BridgeServer: @unchecked Sendable {
     }
 
     private func handleCodexHook(_ payload: CodexHookPayload, from clientID: UUID) {
+        traceCodexHook(
+            stage: "bridge.receive",
+            payload: payload,
+            extraFields: [
+                "clientID": clientID.uuidString,
+            ]
+        )
+
         // Filter out Codex.app internal invocations (e.g. conversation title
         // generation).  These fire hooks but have no transcript file — they're
         // ephemeral API calls, not user-facing sessions.
         if payload.terminalApp == "Codex.app",
            (payload.transcriptPath ?? "").isEmpty {
+            traceCodexHook(stage: "bridge.filtered_internal", payload: payload)
             send(.response(.acknowledged), to: clientID)
             return
         }
@@ -463,6 +487,7 @@ public final class BridgeServer: @unchecked Sendable {
             )
 
             emit(event)
+            traceCodexHook(stage: "bridge.emit_session_started", payload: payload)
             send(.response(.acknowledged), to: clientID)
 
         case .userPromptSubmit:
@@ -480,6 +505,7 @@ public final class BridgeServer: @unchecked Sendable {
                     )
                 )
             )
+            traceCodexHook(stage: "bridge.emit_user_prompt", payload: payload)
             send(.response(.acknowledged), to: clientID)
 
         case .preToolUse:
@@ -508,6 +534,13 @@ public final class BridgeServer: @unchecked Sendable {
             pendingApprovals[payload.sessionID] = PendingApproval(
                 clientID: clientID
             )
+            traceCodexHook(
+                stage: "bridge.emit_permission_requested",
+                payload: payload,
+                extraFields: [
+                    "pendingApprovalCount": String(pendingApprovals.count),
+                ]
+            )
 
         case .postToolUse:
             ensureSessionExists(for: payload)
@@ -527,6 +560,7 @@ public final class BridgeServer: @unchecked Sendable {
                     )
                 )
             )
+            traceCodexHook(stage: "bridge.emit_post_tool_use", payload: payload)
             send(.response(.acknowledged), to: clientID)
 
         case .stop:
@@ -544,6 +578,7 @@ public final class BridgeServer: @unchecked Sendable {
                     )
                 )
             )
+            traceCodexHook(stage: "bridge.emit_completed", payload: payload)
             send(.response(.acknowledged), to: clientID)
         }
     }
@@ -2260,6 +2295,11 @@ public final class BridgeServer: @unchecked Sendable {
 
     private func resolvePendingApproval(sessionID: String, approved: Bool) {
         guard let pendingApproval = pendingApprovals.removeValue(forKey: sessionID) else {
+            traceCodexResolution(
+                stage: "bridge.reply_permission_missing",
+                sessionID: sessionID,
+                approved: approved
+            )
             return
         }
 
@@ -2270,6 +2310,15 @@ public final class BridgeServer: @unchecked Sendable {
             response = .codexHookDirective(.deny(reason: "Permission denied in Open Island."))
         }
 
+        traceCodexResolution(
+            stage: "bridge.reply_permission",
+            sessionID: sessionID,
+            approved: approved,
+            extraFields: [
+                "pendingApprovalCount": String(pendingApprovals.count),
+                "response": codexBridgeResponseSummary(response),
+            ]
+        )
         send(.response(response), to: pendingApproval.clientID)
     }
 
@@ -2433,6 +2482,76 @@ public final class BridgeServer: @unchecked Sendable {
         }
 
         return .object(updatedObject)
+    }
+
+    private func traceCodexHook(
+        stage: String,
+        payload: CodexHookPayload,
+        extraFields: [String: String?] = [:]
+    ) {
+        var fields = CodexHookTraceLogger.payloadFields(for: payload)
+        for (key, value) in extraFields {
+            fields[key] = value
+        }
+
+        CodexHookTraceLogger.log(
+            process: "BridgeServer",
+            stage: stage,
+            fields: fields
+        )
+    }
+
+    private func traceCodexResolution(
+        stage: String,
+        sessionID: String,
+        resolution: PermissionResolution,
+        extraFields: [String: String?] = [:]
+    ) {
+        traceCodexResolution(
+            stage: stage,
+            sessionID: sessionID,
+            approved: resolution.isApproved,
+            extraFields: extraFields
+        )
+    }
+
+    private func traceCodexResolution(
+        stage: String,
+        sessionID: String,
+        approved: Bool,
+        extraFields: [String: String?] = [:]
+    ) {
+        var fields: [String: String?] = [
+            "sessionID": sessionID,
+            "approved": approved ? "true" : "false",
+        ]
+        for (key, value) in extraFields {
+            fields[key] = value
+        }
+
+        CodexHookTraceLogger.log(
+            process: "BridgeServer",
+            stage: stage,
+            fields: fields
+        )
+    }
+
+    private func codexBridgeResponseSummary(_ response: BridgeResponse) -> String {
+        switch response {
+        case .acknowledged:
+            "acknowledged"
+        case let .codexHookDirective(directive):
+            switch directive {
+            case .deny:
+                "codexHookDirective.deny"
+            }
+        case .claudeHookDirective:
+            "claudeHookDirective"
+        case .openCodeHookDirective:
+            "openCodeHookDirective"
+        case .cursorHookDirective:
+            "cursorHookDirective"
+        }
     }
 
     private func emit(_ event: AgentEvent) {
