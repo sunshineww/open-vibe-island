@@ -711,67 +711,34 @@ public final class BridgeServer: @unchecked Sendable {
                 )
             }
 
-            // Detect user-interrupted Bash. Claude Code's BashTool
-            // handles Esc/Ctrl+C by returning "success with the
-            // `interrupted: true` flag" instead of throwing, which
-            // means no Stop/StopFailure hook fires at all for the
-            // interrupt (query.ts returns `aborted_tools` before the
-            // stop-hook path runs). This PostToolUse payload is the
-            // *only* signal we get that the user aborted a bash
-            // command, so we upgrade it to a sessionCompleted event
-            // with isInterrupt=true and let SessionState route it to
-            // the .interrupted phase (orange red-bar scout).
-            let bashInterrupted: Bool = {
-                guard payload.toolName == "Bash",
-                      case let .object(obj) = payload.toolResponse,
-                      case let .boolean(value) = obj["interrupted"] else {
-                    return false
+            let summary = {
+                if payload.toolName == "AskUserQuestion" {
+                    return "\(payload.resolvedAgentTool.displayName) captured your answers."
                 }
-                return value
+
+                if let preview = payload.toolResponsePreview,
+                   let toolName = payload.toolName {
+                    return "\(toolName) finished: \(preview)"
+                }
+
+                if let toolName = payload.toolName {
+                    return "\(toolName) finished."
+                }
+
+                return payload.implicitStartSummary
             }()
 
-            if bashInterrupted {
-                emit(
-                    .sessionCompleted(
-                        SessionCompleted(
-                            sessionID: payload.sessionID,
-                            summary: "Bash interrupted by user.",
-                            timestamp: .now,
-                            isInterrupt: true
-                        )
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: summary,
+                        phase: .running,
+                        timestamp: .now
                     )
                 )
-                send(.response(.acknowledged), to: clientID)
-            } else {
-                let summary = {
-                    if payload.toolName == "AskUserQuestion" {
-                        return "\(payload.resolvedAgentTool.displayName) captured your answers."
-                    }
-
-                    if let preview = payload.toolResponsePreview,
-                       let toolName = payload.toolName {
-                        return "\(toolName) finished: \(preview)"
-                    }
-
-                    if let toolName = payload.toolName {
-                        return "\(toolName) finished."
-                    }
-
-                    return payload.implicitStartSummary
-                }()
-
-                emit(
-                    .activityUpdated(
-                        SessionActivityUpdated(
-                            sessionID: payload.sessionID,
-                            summary: summary,
-                            phase: .running,
-                            timestamp: .now
-                        )
-                    )
-                )
-                send(.response(.acknowledged), to: clientID)
-            }
+            )
+            send(.response(.acknowledged), to: clientID)
 
         case .postToolUseFailure:
             clearStaleClaudeInteractionIfNeeded(for: payload.sessionID)
@@ -780,16 +747,37 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeMetadata(for: payload)
             pendingClaudeToolContexts.removeValue(forKey: payload.permissionCorrelationKey)
 
-            emit(
-                .activityUpdated(
-                    SessionActivityUpdated(
-                        sessionID: payload.sessionID,
-                        summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) tool failed.",
-                        phase: payload.isInterrupt == true ? .completed : .running,
-                        timestamp: .now
+            // Claude Code routes Esc-interrupted tool calls through
+            // `runPostToolUseFailureHooks` with `is_interrupt: true`
+            // (toolExecution.ts:1700). That is the *only* hook signal
+            // we get for user interrupts — Stop/StopFailure do not fire
+            // because query.ts bails out on `aborted_tools` before the
+            // turn-level stop hooks run. Route the payload to
+            // `.interrupted` via `sessionCompleted(isInterrupt: true)`
+            // so the scout shows the orange red-bar state.
+            if payload.isInterrupt == true {
+                emit(
+                    .sessionCompleted(
+                        SessionCompleted(
+                            sessionID: payload.sessionID,
+                            summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) interrupted by user.",
+                            timestamp: .now,
+                            isInterrupt: true
+                        )
                     )
                 )
-            )
+            } else {
+                emit(
+                    .activityUpdated(
+                        SessionActivityUpdated(
+                            sessionID: payload.sessionID,
+                            summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) tool failed.",
+                            phase: .running,
+                            timestamp: .now
+                        )
+                    )
+                )
+            }
             send(.response(.acknowledged), to: clientID)
 
         case .permissionDenied:
