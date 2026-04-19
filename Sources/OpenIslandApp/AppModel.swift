@@ -575,9 +575,15 @@ final class AppModel {
             }
         }
 
-        discovery.claudeInterruptWatcher.onInterrupt = { [weak self] sessionID in
+        discovery.claudeTranscriptWatcher.onInterrupt = { [weak self] sessionID in
             Task { @MainActor [weak self] in
                 self?.handleClaudeTranscriptInterrupt(sessionID: sessionID)
+            }
+        }
+
+        discovery.claudeTranscriptWatcher.onApiRetry = { [weak self] sessionID, status in
+            Task { @MainActor [weak self] in
+                self?.handleClaudeApiRetry(sessionID: sessionID, status: status)
             }
         }
 
@@ -1207,6 +1213,38 @@ final class AppModel {
                     summary: "Interrupted by user.",
                     timestamp: .now,
                     isInterrupt: true
+                )
+            ),
+            updateLastActionMessage: false,
+            ingress: .rollout
+        )
+    }
+
+    /// Called from the Claude transcript watcher when an API retry line
+    /// (`{"type":"system","subtype":"api_error",...}`) lands on disk.
+    /// Claude Code fires no hook for these — the CLI quietly grinds
+    /// through exponential backoff on 429 / 5xx / network errors — so
+    /// the transcript is our only signal. We surface the latest attempt
+    /// as a decoration on the session's `claudeMetadata.retryStatus`;
+    /// the bridge's `mergedClaudeRetryStatus` clears it on the next
+    /// hook event that implies the retry succeeded or the turn ended.
+    func handleClaudeApiRetry(sessionID: String, status: ClaudeApiRetryStatus) {
+        guard let session = state.session(id: sessionID),
+              session.tool == .claudeCode,
+              session.phase == .running else {
+            return
+        }
+
+        let existingMetadata = session.claudeMetadata ?? ClaudeSessionMetadata()
+        var updatedMetadata = existingMetadata
+        updatedMetadata.retryStatus = status
+
+        applyTrackedEvent(
+            .claudeSessionMetadataUpdated(
+                ClaudeSessionMetadataUpdated(
+                    sessionID: sessionID,
+                    claudeMetadata: updatedMetadata,
+                    timestamp: .now
                 )
             ),
             updateLastActionMessage: false,

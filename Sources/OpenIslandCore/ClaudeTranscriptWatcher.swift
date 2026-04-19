@@ -1,19 +1,25 @@
 import Foundation
 
 /// Identifies a Claude session whose JSONL transcript we want to tail for
-/// user-interrupt markers. Claude Code 2.1.x writes one of two sentinels
-/// *synchronously* on Esc at a point where no hook fires (query.ts
-/// bails with `aborted_tools` / `aborted_streaming`), so the file is
-/// the only low-latency signal we have:
+/// in-session signals that hooks do not expose — Esc interrupts and
+/// API-error retries. Claude Code 2.1.x writes both synchronously at points
+/// where no hook fires (query.ts bails with `aborted_tools` /
+/// `aborted_streaming` for Esc; API retries live entirely in the client
+/// loop), so the transcript file is the only low-latency signal.
 ///
+/// Interrupt sentinels (both variants covered by a shared prefix):
 /// - `[Request interrupted by user for tool use]` — Esc while a tool
 ///   is executing (utils/messages.ts: `INTERRUPT_MESSAGE_FOR_TOOL_USE`).
 /// - `[Request interrupted by user]` — Esc while the model is
 ///   streaming a response (utils/messages.ts: `INTERRUPT_MESSAGE`).
 ///
-/// We match the common prefix `[Request interrupted by user` to cover
-/// both without missing either variant.
-public struct ClaudeTranscriptInterruptTarget: Equatable, Sendable {
+/// API-error retry lines look like:
+/// ```
+/// {"type":"system","subtype":"api_error","level":"error",
+///  "error":{"status":502|429|null|...},
+///  "retryAttempt":1,"maxRetries":10,"retryInMs":582.5, ...}
+/// ```
+public struct ClaudeTranscriptWatchTarget: Equatable, Sendable {
     public let sessionID: String
     public let transcriptPath: String
 
@@ -23,18 +29,27 @@ public struct ClaudeTranscriptInterruptTarget: Equatable, Sendable {
     }
 }
 
-/// Tails Claude JSONL transcripts via `DispatchSource.fileSystemObject`
-/// and fires `onInterrupt(sessionID)` when the interrupt sentinel lands
-/// on disk. Intentionally narrow: we do not reconstruct the full
-/// transcript, only scan appended bytes for the marker.
-public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
+/// Tails Claude JSONL transcripts via `DispatchSource.fileSystemObject`.
+/// Emits two kinds of signal:
+/// - `onInterrupt(sessionID)` when an Esc sentinel lands on disk.
+/// - `onApiRetry(sessionID, status)` when Claude Code records a retry.
+///
+/// Intentionally narrow: we do not reconstruct the full transcript, only
+/// scan appended bytes for known markers.
+public final class ClaudeTranscriptWatcher: @unchecked Sendable {
     /// Shared prefix of both `INTERRUPT_MESSAGE` and
     /// `INTERRUPT_MESSAGE_FOR_TOOL_USE`. Matching the prefix keeps the
     /// watcher working across the streaming-abort and tool-abort paths,
     /// and is resilient to Claude Code appending new suffixes later.
     public static let interruptMarker = "[Request interrupted by user"
 
+    /// Cheap substring check used before attempting JSON decode on a line.
+    /// Keeps the hot path away from `JSONDecoder` for every non-retry
+    /// JSONL entry (assistant messages, tool calls, etc.).
+    public static let apiErrorHint = "\"subtype\":\"api_error\""
+
     public var onInterrupt: (@Sendable (String) -> Void)?
+    public var onApiRetry: (@Sendable (String, ClaudeApiRetryStatus) -> Void)?
 
     private struct Observation {
         let sessionID: String
@@ -51,11 +66,21 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
         let resolvedPath: String
         var offset: UInt64
         var pendingBuffer: Data
+        /// First time we saw an api_error line for this observation.
+        /// Used to stamp `ClaudeApiRetryStatus.startedAt` consistently
+        /// across the retry sequence. Reset to nil when a non-retry
+        /// update implicitly clears the state (handled in the bridge).
+        var retrySequenceStartedAt: Date?
         let source: DispatchSourceFileSystemObject
     }
 
-    private let queue = DispatchQueue(label: "app.openisland.claude.interrupt-watcher")
+    private let queue = DispatchQueue(label: "app.openisland.claude.transcript-watcher")
     private var observations: [String: Observation] = [:]
+    private let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
 
     public init() {}
 
@@ -63,7 +88,7 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
         stop()
     }
 
-    public func sync(targets: [ClaudeTranscriptInterruptTarget]) {
+    public func sync(targets: [ClaudeTranscriptWatchTarget]) {
         queue.sync {
             syncLocked(targets: targets)
         }
@@ -78,7 +103,7 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
         }
     }
 
-    private func syncLocked(targets: [ClaudeTranscriptInterruptTarget]) {
+    private func syncLocked(targets: [ClaudeTranscriptWatchTarget]) {
         let targetMap = Dictionary(uniqueKeysWithValues: targets.map { ($0.sessionID, $0) })
 
         // Drop observations whose preferred path changed (caller is
@@ -101,7 +126,7 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
         }
     }
 
-    private func makeObservation(for target: ClaudeTranscriptInterruptTarget) -> Observation? {
+    private func makeObservation(for target: ClaudeTranscriptWatchTarget) -> Observation? {
         // Claude Code 2.1.114 reports `transcript_path` in hook payloads
         // using the CWD-derived flattened directory (including worktree
         // suffix like `--claude-worktrees-<branch>`), but *actually*
@@ -139,6 +164,7 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
             resolvedPath: resolvedPath,
             offset: initialOffset,
             pendingBuffer: Data(),
+            retrySequenceStartedAt: nil,
             source: source
         )
     }
@@ -224,20 +250,34 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
         observation.offset += UInt64(data.count)
         observation.pendingBuffer.append(data)
 
-        let detected = extractAndScan(buffer: &observation.pendingBuffer)
+        let signals = extractAndScan(
+            buffer: &observation.pendingBuffer,
+            retrySequenceStartedAt: &observation.retrySequenceStartedAt
+        )
         observations[sessionID] = observation
 
-        if detected {
+        if signals.interrupted {
             onInterrupt?(sessionID)
+        }
+        for retry in signals.retries {
+            onApiRetry?(sessionID, retry)
         }
     }
 
-    /// Pull complete (`\n`-terminated) lines off the buffer. Return true
-    /// if any line contains the interrupt marker. Leaves the trailing
-    /// partial line in place so the next read can complete it.
-    private func extractAndScan(buffer: inout Data) -> Bool {
+    /// Pull complete (`\n`-terminated) lines off the buffer. Collect any
+    /// interrupt or api_error signals encountered along the way. Leaves
+    /// the trailing partial line in place so the next read can complete
+    /// it. Updates `retrySequenceStartedAt` so the emitted retry
+    /// statuses share a stable `startedAt` across the whole retry
+    /// sequence. Exposed internally so tests can feed synthetic lines
+    /// without going through `DispatchSource`.
+    func extractAndScan(
+        buffer: inout Data,
+        retrySequenceStartedAt: inout Date?
+    ) -> (interrupted: Bool, retries: [ClaudeApiRetryStatus]) {
         let newline: UInt8 = 0x0a
-        var detected = false
+        var interrupted = false
+        var retries: [ClaudeApiRetryStatus] = []
 
         while let newlineIndex = buffer.firstIndex(of: newline) {
             let lineData = buffer.subdata(in: buffer.startIndex..<newlineIndex)
@@ -248,10 +288,54 @@ public final class ClaudeTranscriptInterruptWatcher: @unchecked Sendable {
             }
 
             if line.contains(Self.interruptMarker) {
-                detected = true
+                interrupted = true
+            }
+
+            if line.contains(Self.apiErrorHint),
+               let retry = decodeApiRetry(
+                   from: lineData,
+                   retrySequenceStartedAt: &retrySequenceStartedAt
+               ) {
+                retries.append(retry)
             }
         }
 
-        return detected
+        return (interrupted, retries)
+    }
+
+    private func decodeApiRetry(
+        from lineData: Data,
+        retrySequenceStartedAt: inout Date?
+    ) -> ClaudeApiRetryStatus? {
+        guard let line = try? decoder.decode(ApiErrorLine.self, from: lineData),
+              line.subtype == "api_error" else {
+            return nil
+        }
+
+        let now = Date.now
+        let sequenceStart = retrySequenceStartedAt ?? now
+        retrySequenceStartedAt = sequenceStart
+
+        return ClaudeApiRetryStatus(
+            attempt: line.retryAttempt,
+            maxRetries: line.maxRetries,
+            retryInMs: line.retryInMs,
+            httpStatus: line.error?.status,
+            errorClass: ClaudeApiRetryStatus.classify(httpStatus: line.error?.status),
+            startedAt: sequenceStart,
+            updatedAt: now
+        )
+    }
+
+    private struct ApiErrorLine: Decodable {
+        struct Inner: Decodable {
+            let status: Int?
+        }
+
+        let subtype: String
+        let error: Inner?
+        let retryAttempt: Int
+        let maxRetries: Int
+        let retryInMs: Double
     }
 }

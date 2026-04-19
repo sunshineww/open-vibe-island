@@ -193,6 +193,36 @@ struct IslandPanelView: View {
         return Self.displayToolName(toolName)
     }
 
+    /// When Claude is grinding through API retries, surface `"Retry N/M"`
+    /// in place of the tool label so the user can see why the turn looks
+    /// stuck. Paired with `closedRetryTint` for class-based colouring.
+    private var closedRetryLabel: String? {
+        guard let status = closedRetryStatus else { return nil }
+        return "Retry \(status.attempt)/\(status.maxRetries)"
+    }
+
+    /// Class-aware tint for the closed-notch retry pill. `.rateLimit`
+    /// (429) gets orange because the user is the one being throttled and
+    /// needs to notice. Server/network/client errors use yellow — we're
+    /// waiting on something outside the user's control.
+    private var closedRetryTint: Color? {
+        guard let status = closedRetryStatus else { return nil }
+        switch status.errorClass {
+        case .rateLimit:
+            return .orange
+        case .serverError, .network, .clientError:
+            return .yellow
+        }
+    }
+
+    private var closedRetryStatus: ClaudeApiRetryStatus? {
+        guard let session = closedSpotlightSession,
+              session.phase == .running else {
+            return nil
+        }
+        return session.claudeMetadata?.retryStatus
+    }
+
     /// Tools that read or modify source files / notebooks.
     private static let codingTools: Set<String> = [
         "read", "edit", "write", "multiedit", "notebookedit",
@@ -339,7 +369,10 @@ struct IslandPanelView: View {
         if phase == .compacting {
             leftWidth += 2 + 12  // spacing + spinner
         }
-        if let label = closedToolLabel {
+        // Prefer retry label for width estimation — it's rendered in
+        // place of the tool label when retries are active.
+        let displayLabel = closedRetryLabel ?? closedToolLabel
+        if let label = displayLabel {
             let estimatedTextWidth = CGFloat(label.count) * 6.5
             leftWidth += 4 + max(36, estimatedTextWidth)
         }
@@ -526,7 +559,14 @@ struct IslandPanelView: View {
                                 .matchedGeometryEffect(id: "island-icon", in: notchNamespace, isSource: true)
                         }
 
-                        if let toolLabel = closedToolLabel {
+                        if let retryLabel = closedRetryLabel, let retryTint = closedRetryTint {
+                            Text(retryLabel)
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(retryTint)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .transition(.opacity)
+                        } else if let toolLabel = closedToolLabel {
                             Text(toolLabel)
                                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                                 .foregroundStyle(scoutTint.opacity(0.8))

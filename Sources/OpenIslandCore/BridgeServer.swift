@@ -2102,8 +2102,46 @@ public final class BridgeServer: @unchecked Sendable {
             agentType: update.agentType ?? existing?.agentType,
             worktreeBranch: update.worktreeBranch ?? existing?.worktreeBranch,
             activeSubagents: existing?.activeSubagents ?? [],
-            activeTasks: existing?.activeTasks ?? []
+            activeTasks: existing?.activeTasks ?? [],
+            retryStatus: mergedClaudeRetryStatus(
+                existing: existing?.retryStatus,
+                update: update.retryStatus,
+                hookEventName: hookEventName
+            )
         )
+    }
+
+    /// Gate the retry decoration on incoming hook events. Retries live
+    /// between PreToolUse requests; any event that represents "the turn
+    /// made progress or ended" clears the decoration so stale retry
+    /// state doesn't cling after the API call succeeded. The transcript
+    /// watcher is the only writer of `update.retryStatus`, so for all
+    /// other hook events `update.retryStatus` is nil and we only decide
+    /// whether to keep or drop the existing value.
+    private func mergedClaudeRetryStatus(
+        existing: ClaudeApiRetryStatus?,
+        update: ClaudeApiRetryStatus?,
+        hookEventName: ClaudeHookEventName
+    ) -> ClaudeApiRetryStatus? {
+        switch hookEventName {
+        case .userPromptSubmit,
+             .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .permissionDenied,
+             .stop,
+             .stopFailure,
+             .sessionEnd:
+            return update
+        case .sessionStart,
+             .subagentStart,
+             .subagentStop,
+             .notification,
+             .permissionRequest,
+             .preCompact,
+             .postCompact:
+            return update ?? existing
+        }
     }
 
     private func addSubagent(_ subagent: ClaudeSubagentInfo, toSession sessionID: String) {

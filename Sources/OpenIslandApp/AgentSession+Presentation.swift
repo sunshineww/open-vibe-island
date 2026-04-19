@@ -207,6 +207,15 @@ extension AgentSession {
             return prompt
         }
 
+        // API retries are the most actionable "why is this stuck?"
+        // signal we can surface. Show them before the generic running
+        // activity so the user knows Claude is alive but waiting on the
+        // API (429 / 5xx / network), not hanging.
+        if phase == .running,
+           let retryLine = retryActivityLineText {
+            return retryLine
+        }
+
         switch phase {
         case .running:
             if let activity = spotlightRunningActivityText {
@@ -326,6 +335,43 @@ extension AgentSession {
         }
 
         return "\(label) \(preview)"
+    }
+
+    /// Expanded-card caption describing an in-flight API retry, e.g.
+    /// `"Rate limited (429) · 3/10 · 2.4s"`. Returns nil when the
+    /// session isn't currently retrying or isn't a Claude session.
+    private var retryActivityLineText: String? {
+        guard let retry = claudeMetadata?.retryStatus else {
+            return nil
+        }
+        return "\(retryClassLabel(for: retry)) · \(retry.attempt)/\(retry.maxRetries) · \(retryCountdownLabel(ms: retry.retryInMs))"
+    }
+
+    private func retryClassLabel(for retry: ClaudeApiRetryStatus) -> String {
+        switch retry.errorClass {
+        case .rateLimit:
+            return "Rate limited (429)"
+        case .serverError:
+            if let status = retry.httpStatus {
+                return "Server error (\(status))"
+            }
+            return "Server error"
+        case .network:
+            return "Network glitch"
+        case .clientError:
+            if let status = retry.httpStatus {
+                return "API error (\(status))"
+            }
+            return "API error"
+        }
+    }
+
+    private func retryCountdownLabel(ms: Double) -> String {
+        let seconds = (ms / 100.0).rounded() / 10.0
+        if seconds < 1.0 {
+            return "<1s"
+        }
+        return String(format: "%.1fs", seconds)
     }
 
     private func currentToolDisplayName(for toolName: String) -> String {

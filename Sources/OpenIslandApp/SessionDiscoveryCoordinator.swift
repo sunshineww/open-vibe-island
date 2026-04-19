@@ -53,7 +53,7 @@ final class SessionDiscoveryCoordinator {
     private let claudeTranscriptDiscovery = ClaudeTranscriptDiscovery()
 
     @ObservationIgnored
-    let claudeInterruptWatcher = ClaudeTranscriptInterruptWatcher()
+    let claudeTranscriptWatcher = ClaudeTranscriptWatcher()
 
     @ObservationIgnored
     private var codexSessionPersistenceTask: Task<Void, Never>?
@@ -339,28 +339,29 @@ final class SessionDiscoveryCoordinator {
         codexRolloutWatcher.sync(targets: targets)
     }
 
-    // MARK: - Claude interrupt watching
+    // MARK: - Claude transcript watching
 
-    /// Keep the Claude transcript interrupt watcher in sync with the
-    /// currently running Claude sessions. Claude Code fires no hook on
-    /// user Esc, so we tail each live session's JSONL for the
-    /// interrupt sentinel and route it to `.interrupted` in near
-    /// real-time.
+    /// Keep the Claude transcript watcher in sync with the currently
+    /// running Claude sessions. Claude Code fires no hook for user Esc
+    /// or for API retry attempts, so we tail each live session's JSONL
+    /// for known sentinels (`[Request interrupted by user` /
+    /// `"subtype":"api_error"`) and route them to `.interrupted` or a
+    /// `retryStatus` decoration in near real-time.
     func refreshClaudeInterruptWatching() {
-        let targets = state.sessions.compactMap { session -> ClaudeTranscriptInterruptTarget? in
+        let targets = state.sessions.compactMap { session -> ClaudeTranscriptWatchTarget? in
             guard session.tool == .claudeCode,
                   session.phase == .running,
                   let transcriptPath = session.claudeMetadata?.transcriptPath,
                   !transcriptPath.isEmpty else {
                 return nil
             }
-            return ClaudeTranscriptInterruptTarget(
+            return ClaudeTranscriptWatchTarget(
                 sessionID: session.id,
                 transcriptPath: transcriptPath
             )
         }
 
-        claudeInterruptWatcher.sync(targets: targets)
+        claudeTranscriptWatcher.sync(targets: targets)
     }
 
     // MARK: - Codex.app periodic re-discovery
