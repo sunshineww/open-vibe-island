@@ -92,6 +92,12 @@ public enum SessionPhase: String, Codable, Sendable, CaseIterable {
     case waitingForApproval
     case waitingForAnswer
     case completed
+    /// Session ended with an explicit failure signal (StopFailure /
+    /// PostToolUseFailure on Claude Code, non-zero exit on Codex shells, etc).
+    case failed
+    /// Session ended because the user interrupted it (Ctrl+C, deny+interrupt,
+    /// or an explicit stop-hook interrupt).
+    case interrupted
 
     public var displayName: String {
         switch self {
@@ -103,6 +109,10 @@ public enum SessionPhase: String, Codable, Sendable, CaseIterable {
             "Needs answer"
         case .completed:
             "Completed"
+        case .failed:
+            "Failed"
+        case .interrupted:
+            "Interrupted"
         }
     }
 
@@ -110,7 +120,20 @@ public enum SessionPhase: String, Codable, Sendable, CaseIterable {
         switch self {
         case .waitingForApproval, .waitingForAnswer:
             true
-        case .running, .completed:
+        case .running, .completed, .failed, .interrupted:
+            false
+        }
+    }
+
+    /// Whether this phase represents a session that has ended (no more work
+    /// will happen without a fresh prompt). Used by UI code that treats the
+    /// terminal trio (completed / failed / interrupted) as equivalent for
+    /// visibility and cleanup purposes.
+    public var isTerminal: Bool {
+        switch self {
+        case .completed, .failed, .interrupted:
+            true
+        case .running, .waitingForApproval, .waitingForAnswer:
             false
         }
     }

@@ -71,6 +71,8 @@
 "settings.appearance.status.approval" = "Approval";
 "settings.appearance.status.answer" = "Answer";
 "settings.appearance.status.completed" = "Completed";
+"settings.appearance.status.failed" = "Failed";
+"settings.appearance.status.interrupted" = "Interrupted";
 "settings.appearance.communityNote" = "Much of this was built by the community.\nGot your own vibe? We'd love a PR.";
 
 /* Settings - Display */
@@ -138,7 +140,7 @@
 "island.hint.installHooks" = "No agent hooks installed — sessions won't surface events. Tap to set up.";
 
 /* Island Panel - Session List */
-"island.showAll" = "Show all %lld sessions";
+"island.showAll" = "← Back · %lld sessions";
 "island.collapseList" = "Collapse list";
 "island.usageWaiting" = "Usage waiting";
 

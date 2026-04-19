@@ -159,6 +159,13 @@ struct IslandPanelView: View {
         guard let session = closedSpotlightSession else {
             return .idle
         }
+        // Stale attachment only makes sense while the session is actively
+        // running: a completed / failed / interrupted run should keep its
+        // terminal look (smiley / sad face / pause bar) even if the terminal
+        // window has since been closed.
+        if session.attachmentState == .stale && session.phase == .running {
+            return .stale
+        }
         switch session.phase {
         case .running:
             return Self.scoutPhaseForRunning(toolName: session.currentToolName)
@@ -171,6 +178,10 @@ struct IslandPanelView: View {
                 return .awaitingPrompt
             }
             return .completed
+        case .failed:
+            return .failed
+        case .interrupted:
+            return .interrupted
         }
     }
 
@@ -185,9 +196,50 @@ struct IslandPanelView: View {
         return Self.displayToolName(toolName)
     }
 
+    /// When Claude is grinding through API retries, surface
+    /// `"Retry <code> N/M"` in place of the tool label so the user can
+    /// see *why* the turn looks stuck. The code is the raw HTTP status
+    /// when available (`429`, `502`, `504`, `401`, …) or `net` when no
+    /// HTTP response came back (timeout / transport error). Paired with
+    /// `closedRetryTint` for class-based colouring.
+    private var closedRetryLabel: String? {
+        guard let status = closedRetryStatus else { return nil }
+        let codeToken: String
+        if let httpStatus = status.httpStatus {
+            codeToken = "\(httpStatus)"
+        } else {
+            codeToken = "net"
+        }
+        return "Retry \(codeToken) \(status.attempt)/\(status.maxRetries)"
+    }
+
+    /// Class-aware tint for the closed-notch retry pill. `.rateLimit`
+    /// (429) gets orange because the user is the one being throttled and
+    /// needs to notice. Server/network/client errors use yellow — we're
+    /// waiting on something outside the user's control.
+    private var closedRetryTint: Color? {
+        guard let status = closedRetryStatus else { return nil }
+        switch status.errorClass {
+        case .rateLimit:
+            return .orange
+        case .serverError, .network, .clientError:
+            return .yellow
+        }
+    }
+
+    private var closedRetryStatus: ClaudeApiRetryStatus? {
+        guard let session = closedSpotlightSession,
+              session.phase == .running else {
+            return nil
+        }
+        return session.claudeMetadata?.retryStatus
+    }
+
+    /// Tools that read or modify source files / notebooks.
     private static let codingTools: Set<String> = [
         // Claude Code
-        "read", "edit", "write", "grep", "glob", "notebookedit", "lsp",
+        "read", "edit", "write", "multiedit", "notebookedit",
+        "grep", "glob", "lsp",
         // Codex
         "apply_patch",
         // MCP / misc
@@ -195,29 +247,65 @@ struct IslandPanelView: View {
         "taskcreate", "taskupdate", "taskget", "tasklist",
     ]
 
+    /// Tools that run shell commands or touch background shells.
     private static let commandTools: Set<String> = [
         // Claude Code
-        "bash", "exec_command",
+        "bash", "exec_command", "killshell", "bashoutput", "slashcommand",
         // Codex
         "shell", "write_stdin",
         // General
         "computer", "execute",
     ]
 
+    /// Tools that perform lookups against external knowledge.
     private static let searchTools: Set<String> = [
-        "websearch", "webfetch", "agent",
+        "websearch", "webfetch", "webresearch",
         "listmcpresourcestool", "readmcpresourcetool",
     ]
 
+    /// Tools that delegate work to a sub-agent.
+    private static let subagentTools: Set<String> = [
+        "task", "agent", "spawnagent",
+    ]
+
+    /// Tools that indicate planning / meta-cognition (no primary action).
+    private static let thinkingTools: Set<String> = [
+        "skill", "exitplanmode", "entrplanmode", "enterplanmode",
+        "plan", "todoread",
+    ]
+
     fileprivate static func scoutPhaseForRunning(toolName: String?) -> OpenIslandBrandMark.ScoutPhase {
-        guard let tool = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !tool.isEmpty else {
+        guard let rawTool = toolName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawTool.isEmpty else {
             return .thinking
         }
+        let tool = rawTool.lowercased()
         if tool == "__compacting__" { return .compacting }
+        if subagentTools.contains(tool) { return .subagent }
         if codingTools.contains(tool) { return .coding }
         if commandTools.contains(tool) { return .runningCommand }
         if searchTools.contains(tool) { return .searching }
+        if thinkingTools.contains(tool) { return .thinking }
+
+        // MCP tool namespace (mcp__<server>__<tool>). Categorize by the well
+        // known server prefixes we recognize; fall back to searching for the
+        // generic case since most MCP servers expose lookup-style tools.
+        if tool.hasPrefix("mcp__") {
+            if tool.contains("chrome-devtools") || tool.contains("browser")
+                || tool.contains("puppeteer") || tool.contains("playwright") {
+                return .runningCommand
+            }
+            if tool.contains("ide") && tool.contains("executecode") {
+                return .runningCommand
+            }
+            if tool.contains("confluence") || tool.contains("jira")
+                || tool.contains("github") || tool.contains("ghe")
+                || tool.contains("search") || tool.contains("web") {
+                return .searching
+            }
+            return .searching
+        }
+
         return .thinking
     }
 
@@ -228,6 +316,7 @@ struct IslandPanelView: View {
         case "shell":           return "Shell"
         case "read":            return "Read"
         case "edit":            return "Edit"
+        case "multiedit":       return "MultiEdit"
         case "write":           return "Write"
         case "grep":            return "Grep"
         case "glob":            return "Glob"
@@ -237,10 +326,29 @@ struct IslandPanelView: View {
         case "lsp":             return "LSP"
         case "websearch":       return "Search"
         case "webfetch":        return "Fetch"
+        case "webresearch":     return "Research"
         case "agent":           return "Agent"
         case "computer":        return "Computer"
+        case "task":            return "Task"
+        case "todowrite":       return "Todo"
+        case "taskcreate",
+             "taskupdate",
+             "taskget",
+             "tasklist":        return "Task"
+        case "killshell":       return "Kill"
+        case "bashoutput":      return "Output"
+        case "slashcommand":    return "Slash"
+        case "skill":           return "Skill"
+        case "plan",
+             "enterplanmode",
+             "entrplanmode",
+             "exitplanmode":    return "Plan"
         case "__compacting__":  return "Compact"
-        default:                return toolName
+        default:
+            if toolName.lowercased().hasPrefix("mcp__") {
+                return "MCP"
+            }
+            return toolName
         }
     }
 
@@ -259,12 +367,16 @@ struct IslandPanelView: View {
         case .coding:               return Color(red: 0.0, green: 0.8, blue: 0.85)       // 青色
         case .runningCommand:       return Color(red: 0.65, green: 0.45, blue: 1.0)      // 紫色
         case .searching:            return Color(red: 0.3, green: 0.5, blue: 0.95)       // 靛蓝
+        case .subagent:             return Color(red: 0.55, green: 0.85, blue: 0.95)     // 浅青
         case .waitingForApproval:   return .orange
         case .waitingForAnswer:     return .yellow
         case .completed:            return .green
         case .compacting:           return Color(red: 0.85, green: 0.55, blue: 0.2)      // 琥珀色
         case .waitingForInput:      return Color(red: 0.5, green: 0.8, blue: 0.5)       // 柔和绿
         case .awaitingPrompt:       return Color(red: 0.6, green: 0.75, blue: 0.95)     // 浅蓝
+        case .failed:               return Color(red: 0.95, green: 0.35, blue: 0.35)     // 红色
+        case .interrupted:          return Color(red: 0.95, green: 0.55, blue: 0.25)     // 橙红
+        case .stale:                return Color(red: 0.55, green: 0.6, blue: 0.65)      // 冷灰
         }
     }
 
@@ -283,7 +395,10 @@ struct IslandPanelView: View {
         if phase == .compacting {
             leftWidth += 2 + 12  // spacing + spinner
         }
-        if let label = closedToolLabel {
+        // Prefer retry label for width estimation — it's rendered in
+        // place of the tool label when retries are active.
+        let displayLabel = closedRetryLabel ?? closedToolLabel
+        if let label = displayLabel {
             let estimatedTextWidth = CGFloat(label.count) * 6.5
             leftWidth += 4 + max(36, estimatedTextWidth)
         }
@@ -481,7 +596,14 @@ struct IslandPanelView: View {
                                 .matchedGeometryEffect(id: "island-icon", in: notchNamespace, isSource: true)
                         }
 
-                        if let toolLabel = closedToolLabel {
+                        if let retryLabel = closedRetryLabel, let retryTint = closedRetryTint {
+                            Text(retryLabel)
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(retryTint)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .transition(.opacity)
+                        } else if let toolLabel = closedToolLabel {
                             Text(toolLabel)
                                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                                 .foregroundStyle(scoutTint.opacity(0.8))
@@ -800,6 +922,8 @@ struct IslandPanelView: View {
         case .waitingForApproval: .orange
         case .waitingForAnswer: .yellow
         case .completed: .blue
+        case .failed: Color(red: 0.95, green: 0.35, blue: 0.35)
+        case .interrupted: Color(red: 0.95, green: 0.55, blue: 0.25)
         }
     }
 
@@ -809,27 +933,17 @@ struct IslandPanelView: View {
         let active = model.allSessions.filter { $0.phase == .running || $0.phase.requiresAttention }.count
         let total = model.allSessions.count
 
-        return HStack(spacing: 6) {
-            OpenIslandBrandMark(
-                size: 12,
-                tint: active > 0 ? .mint : .white.opacity(0.5),
-                isAnimating: active > 0,
-                phase: active > 0 ? .thinking : .idle,
-                style: .duotone
-            )
-
-            HStack(spacing: 0) {
-                Text("\(total)")
-                    .foregroundStyle(.white.opacity(0.8))
-                Text(" sessions · ")
-                    .foregroundStyle(.white.opacity(0.35))
-                Text("\(active)")
-                    .foregroundStyle(active > 0 ? .mint : .white.opacity(0.5))
-                Text(" active")
-                    .foregroundStyle(active > 0 ? .mint.opacity(0.7) : .white.opacity(0.35))
-            }
-            .font(.system(size: 10.5, weight: .medium))
+        return HStack(spacing: 0) {
+            Text("\(total)")
+                .foregroundStyle(.white.opacity(0.8))
+            Text(" sessions · ")
+                .foregroundStyle(.white.opacity(0.35))
+            Text("\(active)")
+                .foregroundStyle(active > 0 ? .mint : .white.opacity(0.5))
+            Text(" active")
+                .foregroundStyle(active > 0 ? .mint.opacity(0.7) : .white.opacity(0.35))
         }
+        .font(.system(size: 10.5, weight: .medium))
         .lineLimit(1)
     }
 
@@ -1432,6 +1546,10 @@ private struct IslandSessionRow: View {
             Color(red: 0.34, green: 0.61, blue: 0.99)
         case .completed:
             Color(red: 0.29, green: 0.86, blue: 0.46)
+        case .failed:
+            Color(red: 0.95, green: 0.35, blue: 0.35)
+        case .interrupted:
+            Color(red: 0.95, green: 0.55, blue: 0.25)
         }
     }
 
@@ -1442,7 +1560,7 @@ private struct IslandSessionRow: View {
             approvalActionBody
         case .waitingForAnswer:
             questionActionBody
-        case .completed:
+        case .completed, .failed, .interrupted:
             completionActionBody
         case .running:
             EmptyView()
@@ -1523,7 +1641,12 @@ private struct IslandSessionRow: View {
 
     private var completionActionBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Terminal-style prompt line
+            // Terminal-style prompt line. The "● DONE" neon badge that
+            // used to live at the trailing edge has been removed — the
+            // scout body + check-mark badge at the top of the row
+            // already communicates "completed", and doubling it up just
+            // added visual noise. The `>` glyph itself is enough to
+            // identify this block as the user prompt.
             HStack(alignment: .top, spacing: 8) {
                 Text(">")
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
@@ -1536,48 +1659,23 @@ private struct IslandSessionRow: View {
                     .lineLimit(2)
 
                 Spacer(minLength: 8)
-
-                // Neon status badge
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(actionableStatusTint)
-                        .frame(width: 5, height: 5)
-                        .shadow(color: actionableStatusTint.opacity(0.8), radius: 4)
-
-                    Text(lang.t("completion.done").uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(actionableStatusTint)
-                        .shadow(color: actionableStatusTint.opacity(0.5), radius: 3)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(actionableStatusTint.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(actionableStatusTint.opacity(0.25))
-                )
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
-            // Circuit-line divider
-            ZStack {
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [.clear, actionableStatusTint.opacity(0.2), actionableStatusTint.opacity(0.1), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
+            // Circuit-line divider. The decorative centre dot that used
+            // to ride on top of the gradient read as a button / time
+            // marker and confused users; a plain gradient line conveys
+            // "separator" without any extra meaning.
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, actionableStatusTint.opacity(0.2), actionableStatusTint.opacity(0.1), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
-                    .frame(height: 1)
-
-                Circle()
-                    .fill(actionableStatusTint.opacity(0.6))
-                    .frame(width: 4, height: 4)
-                    .shadow(color: actionableStatusTint.opacity(0.5), radius: 3)
-            }
+                )
+                .frame(height: 1)
 
             AutoHeightScrollView(maxHeight: 260) {
                 Markdown(completionMessageText)
@@ -1653,10 +1751,14 @@ private struct IslandSessionRow: View {
     // MARK: - Actionable helpers
 
     private var completionPromptLabel: String {
+        // The surrounding layout already paints a green `>` prompt glyph,
+        // so tacking a "You:" prefix onto the text is redundant (and in
+        // zh-* locales it sat there untranslated). Just return the
+        // sanitized prompt; if there is no prompt we render nothing.
         if let prompt = session.latestUserPromptText?.trimmedForNotificationCard, !prompt.isEmpty {
-            return "You: \(prompt)"
+            return prompt
         }
-        return "You:"
+        return ""
     }
 
     private var completionMessageText: String {
@@ -1746,6 +1848,12 @@ private struct IslandSessionRow: View {
     }
 
     private func rowScoutPhase(for presence: IslandSessionPresence, at now: Date) -> OpenIslandBrandMark.ScoutPhase {
+        // Stale attachment only applies to a live run. For any terminal
+        // phase we want the actual outcome (smiley / sad face / pause bar)
+        // to stay on screen.
+        if session.attachmentState == .stale && session.phase == .running {
+            return .stale
+        }
         switch session.phase {
         case .running:
             return IslandPanelView.scoutPhaseForRunning(toolName: session.currentToolName)
@@ -1767,13 +1875,17 @@ private struct IslandSessionRow: View {
                 return sinceUpdate < 10 ? .completed : .awaitingPrompt
             }
             return .completed
+        case .failed:
+            return .failed
+        case .interrupted:
+            return .interrupted
         }
     }
 
     /// Prompt line for manually expanded inactive rows (bypasses time-based filter).
     private var expandedPromptLineText: String? {
         guard isManuallyExpanded, let prompt = session.spotlightPromptText else { return nil }
-        return "You: \(prompt)"
+        return prompt
     }
 
     /// Activity line for manually expanded inactive rows (bypasses time-based filter).
@@ -2099,7 +2211,10 @@ private struct ReplyTextField: NSViewRepresentable {
 
 private extension String {
     var trimmedForNotificationCard: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
+        // Delegate to the shared sanitizer so pseudo-tags and image
+        // placeholders are stripped consistently across every island
+        // surface (notification card, session row, completion body).
+        sanitizedForIslandDisplay
     }
 }
 

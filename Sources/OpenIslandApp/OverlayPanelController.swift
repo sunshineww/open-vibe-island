@@ -636,7 +636,7 @@ final class OverlayPanelController {
             return Self.approvalCardHeight - 44
         case .waitingForAnswer:
             return questionCardHeight(for: session.questionPrompt) - 44
-        case .completed:
+        case .completed, .failed, .interrupted:
             return completionBodyHeight(for: session, model: model)
         case .running:
             return 0

@@ -71,6 +71,8 @@
 "settings.appearance.status.approval" = "等待审批";
 "settings.appearance.status.answer" = "等待回答";
 "settings.appearance.status.completed" = "已完成";
+"settings.appearance.status.failed" = "失败";
+"settings.appearance.status.interrupted" = "已中断";
 "settings.appearance.communityNote" = "这里的大部分内容由社区构建。\n有自己的 vibe？欢迎提 PR。";
 
 /* Settings - Display */
@@ -138,7 +140,7 @@
 "island.hint.installHooks" = "尚未安装任何 Agent hook，session 不会触发事件 · 点击配置";
 
 /* Island Panel - Session List */
-"island.showAll" = "显示全部 %lld 个会话";
+"island.showAll" = "← 返回 · %lld 个会话";
 "island.collapseList" = "收起列表";
 "island.usageWaiting" = "等待用量数据";
 

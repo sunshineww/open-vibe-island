@@ -9,21 +9,34 @@ struct ScoutStatePreviewPane: View {
         ("Coding", "Edit", .coding, Color(red: 0.0, green: 0.8, blue: 0.85)),         // 青色
         ("Command", "Bash", .runningCommand, Color(red: 0.65, green: 0.45, blue: 1.0)), // 紫色
         ("Searching", "Search", .searching, Color(red: 0.3, green: 0.5, blue: 0.95)),  // 靛蓝
+        ("Subagent", "Task", .subagent, Color(red: 0.55, green: 0.85, blue: 0.95)),    // 浅青
         ("Approval", nil, .waitingForApproval, .orange),                                // 橙色
         ("Answer", nil, .waitingForAnswer, .yellow),                                    // 黄色
         ("Completed", nil, .completed, .green),                                         // 绿色
         ("Compact", "Compact", .compacting, Color(red: 0.85, green: 0.55, blue: 0.2)),  // 琥珀色
         ("Input", nil, .waitingForInput, Color(red: 0.5, green: 0.8, blue: 0.5)),      // 柔和绿
         ("Awaiting", nil, .awaitingPrompt, Color(red: 0.6, green: 0.75, blue: 0.95)),  // 浅蓝
+        ("Failed", nil, .failed, Color(red: 0.95, green: 0.35, blue: 0.35)),           // 红
+        ("Interrupted", nil, .interrupted, Color(red: 0.95, green: 0.55, blue: 0.25)), // 橙红
+        ("Stale", nil, .stale, Color(red: 0.55, green: 0.6, blue: 0.65)),              // 冷灰
     ]
 
     var body: some View {
+        ScrollView {
+            content
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Scout States Preview")
                 .font(.title2.bold())
                 .foregroundStyle(.white)
 
-            Text("8 种像素小人状态，在 notch 关闭态展示当前 agent 活动。")
+            Text("13 种像素小人状态，覆盖 agent 活动、交互态与结局（成功 / 失败 / 中断 / 休眠）。")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.6))
 
@@ -125,9 +138,7 @@ struct ScoutStatePreviewPane: View {
             .padding(16)
             .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
 
-            Spacer()
+            Spacer(minLength: 12)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

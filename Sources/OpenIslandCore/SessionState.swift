@@ -139,7 +139,20 @@ public struct SessionState: Equatable, Sendable {
                 return
             }
 
-            session.phase = .completed
+            // Decide the terminal phase. Interrupt wins over failure because
+            // the user-intent ("I stopped it") is strictly more informative
+            // than "the run errored out". Full session-end events map to
+            // plain `.completed` regardless so the island clears cleanly.
+            if payload.isSessionEnd == true {
+                session.phase = .completed
+            } else if payload.isInterrupt == true {
+                session.phase = .interrupted
+            } else if payload.isFailure == true {
+                session.phase = .failed
+            } else {
+                session.phase = .completed
+            }
+
             session.summary = payload.summary
             session.permissionRequest = nil
             session.questionPrompt = nil

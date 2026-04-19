@@ -671,6 +671,19 @@ public final class BridgeServer: @unchecked Sendable {
             ensureClaudeSessionExists(for: payload)
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
+
+            // If the session had in-flight tool contexts from a prior
+            // turn, drop them now — those tools were Esc'd and will
+            // never fire `PostToolUse` / `PostToolUseFailure`. The
+            // real-time `ClaudeTranscriptInterruptWatcher` already
+            // routed the session to `.interrupted` via the transcript
+            // sentinel, so we just need to clean up bookkeeping and
+            // progress the new turn normally.
+            let sessionKeyPrefix = "\(payload.sessionID)|"
+            for key in pendingClaudeToolContexts.keys where key.hasPrefix(sessionKeyPrefix) {
+                pendingClaudeToolContexts.removeValue(forKey: key)
+            }
+
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
@@ -829,16 +842,39 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeMetadata(for: payload)
             pendingClaudeToolContexts.removeValue(forKey: payload.permissionCorrelationKey)
 
-            emit(
-                .activityUpdated(
-                    SessionActivityUpdated(
-                        sessionID: payload.sessionID,
-                        summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) tool failed.",
-                        phase: payload.isInterrupt == true ? .completed : .running,
-                        timestamp: .now
+            // `PostToolUseFailure` fires for tool-level errors while
+            // the turn is still alive. Route interrupt-flagged payloads
+            // to `.interrupted` defensively — but note that Claude Code
+            // *skips* hook dispatch entirely on user-Esc interrupts
+            // (query.ts bails at `aborted_tools`/`aborted_streaming`
+            // before any post-tool hooks run). Real-time Esc detection
+            // is owned by `ClaudeTranscriptInterruptWatcher`, which
+            // tails the JSONL transcript for the interrupt sentinel.
+            // This branch only catches genuine tool-level failures that
+            // happen to carry `is_interrupt: true`.
+            if payload.isInterrupt == true {
+                emit(
+                    .sessionCompleted(
+                        SessionCompleted(
+                            sessionID: payload.sessionID,
+                            summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) interrupted by user.",
+                            timestamp: .now,
+                            isInterrupt: true
+                        )
                     )
                 )
-            )
+            } else {
+                emit(
+                    .activityUpdated(
+                        SessionActivityUpdated(
+                            sessionID: payload.sessionID,
+                            summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) tool failed.",
+                            phase: .running,
+                            timestamp: .now
+                        )
+                    )
+                )
+            }
             send(.response(.acknowledged), to: clientID)
 
         case .permissionDenied:
@@ -847,12 +883,17 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
 
+            // Claude fires `PermissionDenied` when the user (or a hook)
+            // rejects a tool call. When the denial was accompanied by
+            // `interrupt: true`, the turn is being killed — route to the
+            // interrupted phase. Otherwise treat it as a completed turn.
             emit(
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
                         summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) permission was denied.",
-                        timestamp: .now
+                        timestamp: .now,
+                        isInterrupt: payload.isInterrupt == true ? true : nil
                     )
                 )
             )
@@ -914,13 +955,19 @@ public final class BridgeServer: @unchecked Sendable {
             // Turn failed — all subagents from this turn must be finished.
             clearAllActiveSubagents(fromSession: payload.sessionID)
 
+            // StopFailure + isInterrupt = user pressed Ctrl+C while the turn
+            // was finishing; StopFailure alone = an uncaught error. Route
+            // each to its semantic terminal phase so the island icon reads
+            // accurately instead of collapsing into generic "Completed".
+            let isInterruptFailure = payload.isInterrupt == true
             emit(
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
                         summary: payload.error ?? payload.lastAssistantMessage ?? payload.assistantMessagePreview ?? "\(payload.resolvedAgentTool.displayName) failed to finish the turn.",
                         timestamp: .now,
-                        isInterrupt: payload.isInterrupt
+                        isInterrupt: payload.isInterrupt,
+                        isFailure: isInterruptFailure ? nil : true
                     )
                 )
             )
@@ -1003,6 +1050,38 @@ public final class BridgeServer: @unchecked Sendable {
                         sessionID: payload.sessionID,
                         claudeMetadata: ClaudeSessionMetadata(
                             currentTool: "__compacting__"
+                        ),
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .postCompact:
+            // Pair with `.preCompact` — clear the `__compacting__`
+            // pseudo-tool so the scout icon leaves the hourglass frame
+            // and returns to thinking/idle. Without this the scout would
+            // spin on the hourglass until the next tool call fired.
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: "\(payload.resolvedAgentTool.displayName) finished compacting.",
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            emit(
+                .claudeSessionMetadataUpdated(
+                    ClaudeSessionMetadataUpdated(
+                        sessionID: payload.sessionID,
+                        claudeMetadata: ClaudeSessionMetadata(
+                            currentTool: nil
                         ),
                         timestamp: .now
                     )
@@ -1297,20 +1376,30 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeCursorJumpTarget(for: payload)
             synchronizeCursorMetadata(for: payload)
             let stopSummary: String
+            let cursorIsFailure: Bool
+            let cursorIsInterrupt: Bool
             switch payload.status {
             case "error":
                 stopSummary = "Cursor encountered an error."
+                cursorIsFailure = true
+                cursorIsInterrupt = false
             case "aborted":
                 stopSummary = "Cursor task was aborted."
+                cursorIsFailure = false
+                cursorIsInterrupt = true
             default:
                 stopSummary = "Cursor completed the turn."
+                cursorIsFailure = false
+                cursorIsInterrupt = false
             }
             emit(
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
                         summary: stopSummary,
-                        timestamp: .now
+                        timestamp: .now,
+                        isInterrupt: cursorIsInterrupt ? true : nil,
+                        isFailure: cursorIsFailure ? true : nil
                     )
                 )
             )
@@ -2101,8 +2190,46 @@ public final class BridgeServer: @unchecked Sendable {
             agentType: update.agentType ?? existing?.agentType,
             worktreeBranch: update.worktreeBranch ?? existing?.worktreeBranch,
             activeSubagents: existing?.activeSubagents ?? [],
-            activeTasks: existing?.activeTasks ?? []
+            activeTasks: existing?.activeTasks ?? [],
+            retryStatus: mergedClaudeRetryStatus(
+                existing: existing?.retryStatus,
+                update: update.retryStatus,
+                hookEventName: hookEventName
+            )
         )
+    }
+
+    /// Gate the retry decoration on incoming hook events. Retries live
+    /// between PreToolUse requests; any event that represents "the turn
+    /// made progress or ended" clears the decoration so stale retry
+    /// state doesn't cling after the API call succeeded. The transcript
+    /// watcher is the only writer of `update.retryStatus`, so for all
+    /// other hook events `update.retryStatus` is nil and we only decide
+    /// whether to keep or drop the existing value.
+    private func mergedClaudeRetryStatus(
+        existing: ClaudeApiRetryStatus?,
+        update: ClaudeApiRetryStatus?,
+        hookEventName: ClaudeHookEventName
+    ) -> ClaudeApiRetryStatus? {
+        switch hookEventName {
+        case .userPromptSubmit,
+             .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .permissionDenied,
+             .stop,
+             .stopFailure,
+             .sessionEnd:
+            return update
+        case .sessionStart,
+             .subagentStart,
+             .subagentStop,
+             .notification,
+             .permissionRequest,
+             .preCompact,
+             .postCompact:
+            return update ?? existing
+        }
     }
 
     private func addSubagent(_ subagent: ClaudeSubagentInfo, toSession sessionID: String) {
@@ -2312,7 +2439,7 @@ public final class BridgeServer: @unchecked Sendable {
             // a notification fires, compacting is over even without a PostToolUse.
             if existing == "__compacting__" { return nil }
             return existing
-        case .sessionStart, .preToolUse, .permissionRequest, .subagentStart, .subagentStop, .preCompact:
+        case .sessionStart, .preToolUse, .permissionRequest, .subagentStart, .subagentStop, .preCompact, .postCompact:
             return existing
         }
     }
@@ -2329,7 +2456,7 @@ public final class BridgeServer: @unchecked Sendable {
         switch hookEventName {
         case .postToolUse, .postToolUseFailure, .permissionDenied, .stop, .stopFailure, .sessionEnd:
             return nil
-        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact:
+        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact, .postCompact:
             return existing
         }
     }
