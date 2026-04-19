@@ -625,9 +625,12 @@ struct IslandPanelView: View {
                     Spacer()
                         .frame(minWidth: closedNotchWidth - 20)
                 } else {
-                    Rectangle()
-                        .fill(Color.black)
-                        .frame(width: closedNotchWidth - NotchShape.closedTopRadius + (isPopping ? 18 : 0))
+                    // Flex spacer pushes the left scout block to `horizontalInset`
+                    // from surface edge and the right count badge to the opposite
+                    // edge, so the gaps are symmetric (= `horizontalInset`, 10pt
+                    // on the closed state). Upstream's CentralActivityLabel
+                    // feature is preserved as an overlay on the spacer.
+                    Spacer(minLength: 0)
                         .overlay(
                             CentralActivityLabel(
                                 toolName: closedSpotlightSession?.currentToolName,
