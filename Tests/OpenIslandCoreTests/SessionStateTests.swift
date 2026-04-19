@@ -699,7 +699,13 @@ struct SessionStateTests {
 
         let sessionStartGroups = hooks?["SessionStart"] as? [[String: Any]]
         #expect(sessionStartGroups?.contains(where: { $0["matcher"] as? String == "startup|resume" }) == true)
-        #expect(hooks?["PreToolUse"] == nil)
+        let preToolGroups = hooks?["PreToolUse"] as? [[String: Any]]
+        let managedPreToolHook = preToolGroups?
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .first(where: { $0["command"] as? String == "'/tmp/OpenIslandHooks'" })
+        #expect(preToolGroups?.contains(where: { $0["matcher"] as? String == "Bash" }) == true)
+        #expect(managedPreToolHook?["timeout"] as? Int == CodexHookInstaller.interactiveManagedTimeout)
         #expect(hooks?["PostToolUse"] == nil)
     }
 
@@ -759,13 +765,19 @@ struct SessionStateTests {
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String } ?? []
+        let managedPreToolHook = preToolGroups?
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .first(where: { $0["command"] as? String == "'/tmp/new-release/OpenIslandHooks'" })
         let stopGroups = hooks?["Stop"] as? [[String: Any]]
         let stopCommands = stopGroups?
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String } ?? []
 
-        #expect(preToolCommands == ["/usr/bin/printf"])
+        #expect(preToolCommands.contains("/usr/bin/printf"))
+        #expect(preToolCommands.contains("'/tmp/new-release/OpenIslandHooks'"))
+        #expect(managedPreToolHook?["timeout"] as? Int == CodexHookInstaller.interactiveManagedTimeout)
         #expect(hooks?["PostToolUse"] == nil)
         #expect(stopCommands.contains("/usr/bin/true"))
         #expect(stopCommands.contains("'/tmp/new-release/OpenIslandHooks'"))

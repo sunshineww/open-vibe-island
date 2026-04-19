@@ -3,7 +3,8 @@ import OpenIslandCore
 
 @main
 struct OpenIslandHooksCLI {
-    private static let interactiveClaudeHookTimeout: TimeInterval = 24 * 60 * 60
+    private static let interactiveHookTimeout = TimeInterval(CodexHookInstaller.interactiveManagedTimeout)
+    private static let standardHookTimeout = TimeInterval(CodexHookInstaller.managedTimeout)
 
     private enum HookSource: String {
         case codex
@@ -46,8 +47,12 @@ struct OpenIslandHooksCLI {
                     .decode(CodexHookPayload.self, from: input)
                     .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
 
-                guard let response = try? client.send(.processCodexHook(payload)) else {
-                    logStderr("bridge unavailable for codex hook")
+                let timeout = payload.hookEventName == .preToolUse
+                    ? Self.interactiveHookTimeout
+                    : Self.standardHookTimeout
+
+                guard let response = try? client.send(.processCodexHook(payload), timeout: timeout) else {
+                    logStderr("bridge unavailable for codex hook (\(payload.hookEventName.rawValue))")
                     return
                 }
 
@@ -61,8 +66,8 @@ struct OpenIslandHooksCLI {
                 payload.hookSource = sourceString
 
                 let timeout = payload.hookEventName == .permissionRequest
-                    ? interactiveClaudeHookTimeout
-                    : 45
+                    ? Self.interactiveHookTimeout
+                    : Self.standardHookTimeout
 
                 guard let response = try? client.send(.processClaudeHook(payload), timeout: timeout) else {
                     logStderr("bridge unavailable for claude hook (\(payload.hookEventName.rawValue))")
@@ -76,8 +81,8 @@ struct OpenIslandHooksCLI {
                 let payload = try decoder.decode(CursorHookPayload.self, from: input)
 
                 let timeout: TimeInterval = payload.isBlockingHook
-                    ? Self.interactiveClaudeHookTimeout
-                    : 45
+                    ? Self.interactiveHookTimeout
+                    : Self.standardHookTimeout
 
                 guard let response = try? client.send(.processCursorHook(payload), timeout: timeout) else {
                     return
@@ -94,7 +99,7 @@ struct OpenIslandHooksCLI {
                     .decode(GeminiHookPayload.self, from: input)
                     .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
 
-                _ = try? client.send(.processGeminiHook(payload), timeout: 45)
+                _ = try? client.send(.processGeminiHook(payload), timeout: Self.standardHookTimeout)
             }
         } catch {
             // Hooks should fail open so the CLI continues working even if the bridge is unavailable.
