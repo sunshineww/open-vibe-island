@@ -235,42 +235,39 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 8. Completed: Cheering scout with both arms raised (frame A) ──
+    // ── 8. Completed: Classic cup trophy (frame A) ──
     //
-    // Iteration 4 on the "done" sprite. Trophy read as idle; round
-    // smiley collided with the failed frown; crown looked royal rather
-    // than victorious. This version freezes the scout mid-celebration
-    // with both arms thrown up in a V — the universal "I did it!"
-    // posture. The head is centered (not touching the top row) so the
-    // outline reads as arms + body, distinct from every other sprite.
-    // Green (G) pixels still carve a smile so the happy semantics are
-    // obvious even before the tint lands.
+    // Picked from the Lab's candidate bank. Two side handles on row 0,
+    // wide cup mouth, highlighted interior, waisted base — reads as
+    // "trophy" at 14 px without relying on a face at all. Rendered in
+    // the green completed tint so the success semantics land even
+    // before the ✓ badge does.
     private static let completedFrameA: [String] = [
-        "B......B",
-        ".BB..BB.",
-        "..BBBB..",
+        ".B....B.",
+        "BBBBBBBB",
+        "BHHHHHHB",
+        "BHHHHHHB",
+        ".BHHHHB.",
+        "..BHHB..",
         ".BBBBBB.",
-        "BBEBBEBB",
-        "BBHHHHBB",
-        "B.HGGH.B",
-        ".B.BB.B.",
+        "..BBBB..",
     ]
 
-    // ── 8. Completed: Cheering scout (frame B — reserved) ──
+    // ── 8. Completed: Trophy (frame B — reserved) ──
     //
     // Completed is static (`isAnimated == false`) so frame B is never
-    // rendered. It mirrors frame A so that a future one-shot celebration
-    // animation can toggle between "arms up" and "arms a touch lower"
-    // without touching the renderer.
+    // rendered. Kept identical to frame A so a future one-shot shine
+    // animation can animate the `H` interior without touching the
+    // renderer.
     private static let completedFrameB: [String] = [
-        "B......B",
-        ".BB..BB.",
-        "..BBBB..",
+        ".B....B.",
+        "BBBBBBBB",
+        "BHHHHHHB",
+        "BHHHHHHB",
+        ".BHHHHB.",
+        "..BHHB..",
         ".BBBBBB.",
-        "BBEBBEBB",
-        "BBHHHHBB",
-        "B.HGGH.B",
-        ".B.BB.B.",
+        "..BBBB..",
     ]
 
     // ── 9. Compacting: Hourglass (frame A — sand on top) ──

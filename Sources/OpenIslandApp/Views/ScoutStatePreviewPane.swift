@@ -34,7 +34,7 @@ struct ScoutStatePreviewPane: View {
                 .font(.title2.bold())
                 .foregroundStyle(.white)
 
-            Text("13 种像素小人状态，覆盖 agent 活动、交互态与结局（成功 / 失败 / 中断 / 休眠）。下方「造型候选」可横向滚动，方便对比挑选。")
+            Text("13 种像素小人状态，覆盖 agent 活动、交互态与结局（成功 / 失败 / 中断 / 休眠）。")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.6))
 
@@ -135,54 +135,6 @@ struct ScoutStatePreviewPane: View {
             }
             .padding(16)
             .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-
-            // ── Sprite candidates (lab): compare drafts side-by-side at
-            //    real notch size before the user picks a winner.
-            VStack(alignment: .leading, spacing: 16) {
-                Text("造型候选（Lab）")
-                    .font(.title3.bold())
-                    .foregroundStyle(.white)
-
-                Text("每组显示候选造型在 14px（黑色胶囊内，实际刘海大小）和 48px 下的效果。挑好后告诉我编号，我把对应帧落到正式渲染里。")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.55))
-
-                ScoutVariantGallery(
-                    title: "Completed — 任务成功完成",
-                    subtitle: "经典胜利符号：奖杯 / 星星 / 闪光 / 1UP 蘑菇 / 金币 / 奖牌 / 宝箱",
-                    variants: ScoutVariantBank.completedCandidates
-                )
-
-                ScoutVariantGallery(
-                    title: "Waiting for Approval — 等待授权",
-                    subtitle: "经典告警符号：! 砖块 / STOP 八边形 / 举手 HALT / 盾牌",
-                    variants: ScoutVariantBank.approvalCandidates
-                )
-
-                ScoutVariantGallery(
-                    title: "Waiting for Answer — 等待回答",
-                    subtitle: "经典提问符号：? 砖块 / 问号气泡 / 举手",
-                    variants: ScoutVariantBank.answerCandidates
-                )
-
-                ScoutVariantGallery(
-                    title: "Failed — 任务失败",
-                    subtitle: "经典失败符号：骷髅 / 碎心 / X 眼 / GameOver 幽灵眼",
-                    variants: ScoutVariantBank.failedCandidates
-                )
-
-                ScoutVariantGallery(
-                    title: "Interrupted — 用户中断",
-                    subtitle: "经典暂停符号：⏸ / STOP / 电源键",
-                    variants: ScoutVariantBank.interruptedCandidates
-                )
-
-                ScoutVariantGallery(
-                    title: "Subagent — 派生子 agent",
-                    subtitle: "经典分身符号：双入侵者 / 肩负小 scout / 2P 控制器",
-                    variants: ScoutVariantBank.subagentCandidates
-                )
-            }
 
             Spacer(minLength: 12)
         }
