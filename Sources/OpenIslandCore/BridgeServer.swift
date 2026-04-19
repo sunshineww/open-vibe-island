@@ -589,6 +589,36 @@ public final class BridgeServer: @unchecked Sendable {
             ensureClaudeSessionExists(for: payload)
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
+
+            // Esc-interrupt detection. Claude Code fires *no* hook when
+            // the user aborts a tool call: query.ts bails out at
+            // `aborted_tools` before Stop/StopFailure/PostToolUse*
+            // dispatch (2.1.87: query.ts:1515). The only way we learn
+            // the prior turn was killed is when the next UserPromptSubmit
+            // arrives while we still have orphaned in-flight tool
+            // contexts for this session. Flip phase to `.interrupted`
+            // for one cycle so the island surfaces the Esc, then the
+            // `.running` transition below progresses the new turn.
+            let sessionKeyPrefix = "\(payload.sessionID)|"
+            let orphanedToolKeys = pendingClaudeToolContexts.keys.filter {
+                $0.hasPrefix(sessionKeyPrefix)
+            }
+            if !orphanedToolKeys.isEmpty {
+                for key in orphanedToolKeys {
+                    pendingClaudeToolContexts.removeValue(forKey: key)
+                }
+                emit(
+                    .sessionCompleted(
+                        SessionCompleted(
+                            sessionID: payload.sessionID,
+                            summary: "Interrupted by user.",
+                            timestamp: .now,
+                            isInterrupt: true
+                        )
+                    )
+                )
+            }
+
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
@@ -747,14 +777,14 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeMetadata(for: payload)
             pendingClaudeToolContexts.removeValue(forKey: payload.permissionCorrelationKey)
 
-            // Claude Code routes Esc-interrupted tool calls through
-            // `runPostToolUseFailureHooks` with `is_interrupt: true`
-            // (toolExecution.ts:1700). That is the *only* hook signal
-            // we get for user interrupts — Stop/StopFailure do not fire
-            // because query.ts bails out on `aborted_tools` before the
-            // turn-level stop hooks run. Route the payload to
-            // `.interrupted` via `sessionCompleted(isInterrupt: true)`
-            // so the scout shows the orange red-bar state.
+            // `PostToolUseFailure` fires for tool-level errors while
+            // the turn is still alive. Route interrupt-flagged payloads
+            // to `.interrupted` defensively, but note: Claude Code
+            // actually *skips* hook dispatch entirely on user-Esc
+            // interrupts (query.ts bails out at `aborted_tools` before
+            // any post-tool hooks run). The real Esc detection happens
+            // on the next `UserPromptSubmit` below, where we look for
+            // orphaned in-flight tool contexts.
             if payload.isInterrupt == true {
                 emit(
                     .sessionCompleted(
