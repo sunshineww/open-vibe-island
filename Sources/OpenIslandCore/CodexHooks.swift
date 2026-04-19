@@ -5,6 +5,7 @@ public enum CodexHookEventName: String, Codable, Sendable {
     case preToolUse = "PreToolUse"
     case postToolUse = "PostToolUse"
     case userPromptSubmit = "UserPromptSubmit"
+    case permissionRequest = "PermissionRequest"
     case stop = "Stop"
 }
 
@@ -311,6 +312,8 @@ public extension CodexHookPayload {
             return "Codex reported a Bash result in \(workspaceName)."
         case .userPromptSubmit:
             return "Codex received a new prompt in \(workspaceName)."
+        case .permissionRequest:
+            return "Codex is asking for approval in \(workspaceName)."
         case .stop:
             return "Codex completed a turn in \(workspaceName)."
         }

@@ -47,9 +47,13 @@ struct OpenIslandHooksCLI {
                     .decode(CodexHookPayload.self, from: input)
                     .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
 
-                let timeout = payload.hookEventName == .preToolUse
-                    ? Self.interactiveHookTimeout
-                    : Self.standardHookTimeout
+                let timeout: TimeInterval
+                switch payload.hookEventName {
+                case .preToolUse, .permissionRequest:
+                    timeout = Self.interactiveHookTimeout
+                case .sessionStart, .userPromptSubmit, .postToolUse, .stop:
+                    timeout = Self.standardHookTimeout
+                }
                 let startedAt = Date()
 
                 traceCodexHook(

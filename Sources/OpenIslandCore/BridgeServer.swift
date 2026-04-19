@@ -13,6 +13,11 @@ public final class BridgeServer: @unchecked Sendable {
 
     private struct PendingApproval {
         let clientID: UUID
+        /// Which codex hook event produced this approval. Determines the
+        /// stdout schema used when resolving (`PermissionRequest` uses the
+        /// hookSpecificOutput decision schema; legacy `PreToolUse` uses the
+        /// `{"decision":"block",...}` shape that codex still accepts).
+        let hookEventName: CodexHookEventName
     }
 
     private struct PendingClaudeToolContext {
@@ -508,7 +513,7 @@ public final class BridgeServer: @unchecked Sendable {
             traceCodexHook(stage: "bridge.emit_user_prompt", payload: payload)
             send(.response(.acknowledged), to: clientID)
 
-        case .preToolUse:
+        case .preToolUse, .permissionRequest:
             ensureSessionExists(for: payload)
             synchronizeJumpTarget(for: payload)
             synchronizeCodexMetadata(for: payload)
@@ -532,7 +537,8 @@ public final class BridgeServer: @unchecked Sendable {
             emit(approvalEvent)
 
             pendingApprovals[payload.sessionID] = PendingApproval(
-                clientID: clientID
+                clientID: clientID,
+                hookEventName: payload.hookEventName
             )
             traceCodexHook(
                 stage: "bridge.emit_permission_requested",
@@ -2016,7 +2022,7 @@ public final class BridgeServer: @unchecked Sendable {
         switch hookEventName {
         case .userPromptSubmit, .postToolUse, .stop:
             return nil
-        case .sessionStart, .preToolUse:
+        case .sessionStart, .preToolUse, .permissionRequest:
             return existing
         }
     }
@@ -2288,7 +2294,7 @@ public final class BridgeServer: @unchecked Sendable {
         switch hookEventName {
         case .userPromptSubmit, .postToolUse, .stop:
             return nil
-        case .sessionStart, .preToolUse:
+        case .sessionStart, .preToolUse, .permissionRequest:
             return existing
         }
     }
