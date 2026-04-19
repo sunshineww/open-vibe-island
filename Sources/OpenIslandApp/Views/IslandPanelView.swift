@@ -159,9 +159,11 @@ struct IslandPanelView: View {
         guard let session = closedSpotlightSession else {
             return .idle
         }
-        // Stale attachment: session is technically alive but its terminal is
-        // gone, so treat it like a passive "sleeping" state on the island.
-        if session.attachmentState == .stale && !session.phase.requiresAttention {
+        // Stale attachment only makes sense while the session is actively
+        // running: a completed / failed / interrupted run should keep its
+        // terminal look (smiley / sad face / pause bar) even if the terminal
+        // window has since been closed.
+        if session.attachmentState == .stale && session.phase == .running {
             return .stale
         }
         switch session.phase {
@@ -1787,9 +1789,10 @@ private struct IslandSessionRow: View {
     }
 
     private func rowScoutPhase(for presence: IslandSessionPresence) -> OpenIslandBrandMark.ScoutPhase {
-        // Stale attachment: session is alive but its terminal is gone.
-        if session.attachmentState == .stale && !session.phase.requiresAttention
-           && session.phase != .failed && session.phase != .interrupted {
+        // Stale attachment only applies to a live run. For any terminal
+        // phase we want the actual outcome (smiley / sad face / pause bar)
+        // to stay on screen.
+        if session.attachmentState == .stale && session.phase == .running {
             return .stale
         }
         switch session.phase {

@@ -32,6 +32,8 @@ final class AppModel {
         .waitingForApproval: "#FFB547",
         .waitingForAnswer: "#FFD95A",
         .completed: "#42E86B",
+        .failed: "#F25959",
+        .interrupted: "#F28C40",
     ]
     private static let syntheticClaudeSessionPrefix = "claude-process:"
     private static let liveSessionStalenessWindow: TimeInterval = 15 * 60

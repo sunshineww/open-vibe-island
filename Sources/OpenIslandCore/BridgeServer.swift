@@ -765,12 +765,17 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
 
+            // Claude fires `PermissionDenied` when the user (or a hook)
+            // rejects a tool call. When the denial was accompanied by
+            // `interrupt: true`, the turn is being killed — route to the
+            // interrupted phase. Otherwise treat it as a completed turn.
             emit(
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
                         summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) permission was denied.",
-                        timestamp: .now
+                        timestamp: .now,
+                        isInterrupt: payload.isInterrupt == true ? true : nil
                     )
                 )
             )
