@@ -265,20 +265,30 @@ public enum CodexHookOutputEncoder {
         }
     }
 
-    public static func standardOutput(for response: BridgeResponse) throws -> Data? {
+    public static func standardOutput(
+        for response: BridgeResponse,
+        hookEventName: CodexHookEventName
+    ) throws -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
         switch response {
         case .acknowledged:
-            // Only PermissionRequest reaches this path today (CodexHookInstaller
-            // no longer installs PreToolUse). An absent stdout would be treated
-            // as `None` by codex and fall back to the terminal prompt — emit
-            // an explicit `allow` envelope to short-circuit.
+            // Only PermissionRequest uses the `hookSpecificOutput` allow/deny
+            // envelope. Other events (SessionStart / UserPromptSubmit / Stop)
+            // treat the output as their own JSON shape, and emitting the
+            // PermissionRequest envelope makes codex report
+            // "hook returned invalid <event> JSON output". Stay silent for
+            // everything else — codex's default behavior is pass-through.
+            guard hookEventName == .permissionRequest else { return nil }
             return try appendNewline(encoder.encode(PermissionRequestOutput.allow()))
         case let .codexHookDirective(directive):
             switch directive {
             case let .deny(reason):
+                // Deny only makes sense for PermissionRequest today. Defensive
+                // guard: if bridge ever returns deny for a non-approval event,
+                // we skip emission rather than send a mis-typed envelope.
+                guard hookEventName == .permissionRequest else { return nil }
                 return try appendNewline(encoder.encode(PermissionRequestOutput.deny(message: reason)))
             }
         case .claudeHookDirective:

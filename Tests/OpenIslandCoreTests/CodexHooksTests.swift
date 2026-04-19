@@ -89,8 +89,11 @@ struct CodexHooksTests {
     // MARK: - CodexHookOutputEncoder schemas
 
     @Test
-    func encoderEmitsAllowSchemaOnAck() throws {
-        let data = try CodexHookOutputEncoder.standardOutput(for: .acknowledged)
+    func encoderEmitsAllowSchemaForPermissionRequestAck() throws {
+        let data = try CodexHookOutputEncoder.standardOutput(
+            for: .acknowledged,
+            hookEventName: .permissionRequest
+        )
         let line = try #require(data)
         let json = try JSONSerialization.jsonObject(with: line) as? [String: Any]
         let output = json?["hookSpecificOutput"] as? [String: Any]
@@ -100,9 +103,10 @@ struct CodexHooksTests {
     }
 
     @Test
-    func encoderEmitsDenySchemaForCodexHookDirectiveDeny() throws {
+    func encoderEmitsDenySchemaForPermissionRequestDeny() throws {
         let data = try CodexHookOutputEncoder.standardOutput(
-            for: .codexHookDirective(.deny(reason: "Denied in Open Island."))
+            for: .codexHookDirective(.deny(reason: "Denied in Open Island.")),
+            hookEventName: .permissionRequest
         )
         let line = try #require(data)
         let json = try JSONSerialization.jsonObject(with: line) as? [String: Any]
@@ -111,5 +115,26 @@ struct CodexHooksTests {
         #expect(output?["hookEventName"] as? String == "PermissionRequest")
         #expect(decision?["behavior"] as? String == "deny")
         #expect(decision?["message"] as? String == "Denied in Open Island.")
+    }
+
+    @Test
+    func encoderStaysSilentForSessionStartAck() throws {
+        // Regression: a previous cleanup unconditionally emitted the
+        // PermissionRequest envelope for every ack, which caused codex to
+        // reject SessionStart / UserPromptSubmit / Stop hooks with
+        // "hook returned invalid <event> JSON output". Non-approval events
+        // must emit no stdout so codex falls back to its pass-through.
+        #expect(try CodexHookOutputEncoder.standardOutput(
+            for: .acknowledged,
+            hookEventName: .sessionStart
+        ) == nil)
+        #expect(try CodexHookOutputEncoder.standardOutput(
+            for: .acknowledged,
+            hookEventName: .userPromptSubmit
+        ) == nil)
+        #expect(try CodexHookOutputEncoder.standardOutput(
+            for: .acknowledged,
+            hookEventName: .stop
+        ) == nil)
     }
 }
