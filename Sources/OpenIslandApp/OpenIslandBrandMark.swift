@@ -87,9 +87,16 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 2. Thinking: Wizard (frame A: hat sparkle left) ──
+    // ── 2. Thinking: Wizard (frame A — sparkles at hat tip) ──
+    //
+    // Sparkles are painted with the G role, which `fillColor(for:)`
+    // renders as bright yellow when the phase is .thinking (high
+    // contrast against the blue wizard body). Two sparkles per frame
+    // so the hat feels genuinely lively, and between frames they jump
+    // to completely different spots so the eye registers motion even
+    // at 14 px.
     private static let thinkingFrameA: [String] = [
-        "H..BB...",
+        "G..BB..G",
         "..BBBB..",
         ".BBBBBB.",
         "..HHHH..",
@@ -99,11 +106,11 @@ struct OpenIslandBrandMark: View {
         "........",
     ]
 
-    // ── 2. Thinking: Wizard (frame B: hat sparkle right) ──
+    // ── 2. Thinking: Wizard (frame B — sparkles at hat rim) ──
     private static let thinkingFrameB: [String] = [
-        "...BB..H",
+        "...BB...",
         "..BBBB..",
-        ".BBBBBB.",
+        "GBBBBBBG",
         "..HHHH..",
         ".BHEHEB.",
         "..HHHH..",
@@ -375,13 +382,38 @@ struct OpenIslandBrandMark: View {
 
     // MARK: - Badge symbol patterns (8×8, rendered to the right of the scout)
 
-    /// "..." thinking dots
-    private static let dotsBadgePattern: [String] = [
+    /// Thinking dots — three-frame typing-indicator animation.
+    /// Rendered cyclically by `ScoutBadgeView` when `phase == .thinking`:
+    /// only-left → both → only-right → both → only-left …
+    /// so the two dots appear to "pulse" like a chat app's typing cue.
+    private static let dotsBadgePatternLeftOnly: [String] = [
+        "........",
+        "........",
+        ".B......",
+        "BBB.....",
+        ".B......",
+        "........",
+        "........",
+        "........",
+    ]
+
+    private static let dotsBadgePatternBoth: [String] = [
         "........",
         "........",
         ".B...B..",
         "BBB.BBB.",
         ".B...B..",
+        "........",
+        "........",
+        "........",
+    ]
+
+    private static let dotsBadgePatternRightOnly: [String] = [
+        "........",
+        "........",
+        ".....B..",
+        "....BBB.",
+        ".....B..",
         "........",
         "........",
         "........",
@@ -548,7 +580,10 @@ struct OpenIslandBrandMark: View {
     private static let interruptedPixels = parsePixels(interruptedFrameA)
     private static let stalePixels = parsePixels(staleFrameA)
 
-    private static let dotsBadgePixels = parsePixels(dotsBadgePattern)
+    private static let dotsBadgePixelsLeft = parsePixels(dotsBadgePatternLeftOnly)
+    private static let dotsBadgePixelsBoth = parsePixels(dotsBadgePatternBoth)
+    private static let dotsBadgePixelsRight = parsePixels(dotsBadgePatternRightOnly)
+    private static let dotsBadgePixels = dotsBadgePixelsBoth  // fallback / legacy
     private static let lightningBadgePixels = parsePixels(lightningBadgePattern)
     private static let searchBadgePixels = parsePixels(searchBadgePattern)
     private static let exclamationBadgePixels = parsePixels(exclamationBadgePattern)
@@ -564,7 +599,7 @@ struct OpenIslandBrandMark: View {
     var currentBadgePixels: [(x: Int, y: Int, role: Character)]? {
         switch phase {
         case .idle:                 return nil
-        case .thinking:             return Self.dotsBadgePixels
+        case .thinking:             return Self.dotsBadgePixelsBoth
         case .coding:               return Self.codeBracketsBadgePixels
         case .runningCommand:       return Self.lightningBadgePixels
         case .searching:            return Self.searchBadgePixels
@@ -576,6 +611,23 @@ struct OpenIslandBrandMark: View {
         case .failed:               return Self.crossBadgePixels
         case .interrupted:          return Self.pauseBadgePixels
         case .stale:                return Self.zBadgePixels
+        }
+    }
+
+    /// Badge pixel pattern indexed by an external animation tick. Today
+    /// only `.thinking` varies across frames (typing-indicator dots); all
+    /// other phases ignore `tick` and return the static pattern.
+    func badgePixels(at tick: Int) -> [(x: Int, y: Int, role: Character)]? {
+        switch phase {
+        case .thinking:
+            switch ((tick % 4) + 4) % 4 {
+            case 0:  return Self.dotsBadgePixelsLeft
+            case 1:  return Self.dotsBadgePixelsBoth
+            case 2:  return Self.dotsBadgePixelsRight
+            default: return Self.dotsBadgePixelsBoth
+            }
+        default:
+            return currentBadgePixels
         }
     }
 
@@ -638,6 +690,14 @@ struct OpenIslandBrandMark: View {
                 }
 
             }
+            // `.id(phase)` forces a full ZStack rebuild on phase change
+            // instead of letting SwiftUI crossfade the `Rectangle.fill`
+            // colour from the previous phase to the new one. Without it,
+            // the thinking wizard's yellow `G` sparkle lingers as a
+            // fading yellow dot for ~300 ms after switching to a phase
+            // whose frame has no `G` pixels, which reads as "the hat is
+            // still sparkling".
+            .id(phase)
             .opacity(phase.isAnimated ? breatheOpacity : 1.0)
         }
         .frame(width: size, height: size)
@@ -658,7 +718,8 @@ struct OpenIslandBrandMark: View {
         let frameDuration: Double
         switch phase {
         case .thinking:
-            frameDuration = 0.8          // sparkle flicker
+            frameDuration = 0.35         // sparkle flicker — snappier so
+                                         // the hat visibly twinkles
         case .coding:
             frameDuration = 0.5          // fast typing
         case .runningCommand:
@@ -702,12 +763,15 @@ struct OpenIslandBrandMark: View {
                 // Wink/closed eye — lighter than normal eye.
                 return tint.opacity(0.5)
             case "G":
-                // Accent pixel. Green for the happy/completed state; for the
-                // failed/interrupted states we tint it red so a frown or stop
-                // bar stands out against the tinted body.
+                // Accent pixel. Green for happy/completed, red for
+                // failed/interrupted, and bright yellow for thinking
+                // (wizard sparkles need high contrast on the blue body
+                // so the animation is actually visible).
                 switch phase {
                 case .failed, .interrupted:
                     return Color.red.opacity(0.85)
+                case .thinking:
+                    return Color.yellow.opacity(0.95)
                 default:
                     return Color.green.opacity(0.9)
                 }
