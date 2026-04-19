@@ -86,4 +86,56 @@ struct CodexHooksTests {
         #expect(payload.warpPaneUUID == nil)
     }
 
+    // MARK: - CodexHookOutputEncoder schemas
+
+    @Test
+    func encoderEmitsAllowSchemaForPermissionRequestAck() throws {
+        let data = try CodexHookOutputEncoder.standardOutput(
+            for: .acknowledged,
+            hookEventName: .permissionRequest
+        )
+        let line = try #require(data)
+        let json = try JSONSerialization.jsonObject(with: line) as? [String: Any]
+        let output = json?["hookSpecificOutput"] as? [String: Any]
+        let decision = output?["decision"] as? [String: Any]
+        #expect(output?["hookEventName"] as? String == "PermissionRequest")
+        #expect(decision?["behavior"] as? String == "allow")
+    }
+
+    @Test
+    func encoderEmitsDenySchemaForPermissionRequestDeny() throws {
+        let data = try CodexHookOutputEncoder.standardOutput(
+            for: .codexHookDirective(.deny(reason: "Denied in Open Island.")),
+            hookEventName: .permissionRequest
+        )
+        let line = try #require(data)
+        let json = try JSONSerialization.jsonObject(with: line) as? [String: Any]
+        let output = json?["hookSpecificOutput"] as? [String: Any]
+        let decision = output?["decision"] as? [String: Any]
+        #expect(output?["hookEventName"] as? String == "PermissionRequest")
+        #expect(decision?["behavior"] as? String == "deny")
+        #expect(decision?["message"] as? String == "Denied in Open Island.")
+    }
+
+    @Test
+    func encoderStaysSilentForPreToolUseAck() throws {
+        let data = try CodexHookOutputEncoder.standardOutput(
+            for: .acknowledged,
+            hookEventName: .preToolUse
+        )
+        #expect(data == nil)
+    }
+
+    @Test
+    func encoderEmitsLegacyBlockForPreToolUseDeny() throws {
+        let data = try CodexHookOutputEncoder.standardOutput(
+            for: .codexHookDirective(.deny(reason: "Legacy deny.")),
+            hookEventName: .preToolUse
+        )
+        let line = try #require(data)
+        let json = try JSONSerialization.jsonObject(with: line) as? [String: Any]
+        #expect(json?["decision"] as? String == "block")
+        #expect(json?["reason"] as? String == "Legacy deny.")
+        #expect(json?["hookSpecificOutput"] == nil)
+    }
 }

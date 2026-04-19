@@ -231,24 +231,77 @@ public enum CodexHookOutputEncoder {
         var reason: String
     }
 
-    public static func standardOutput(for response: BridgeResponse) throws -> Data? {
+    /// Shape documented at openai/codex `codex-rs/hooks/src/schema.rs`:
+    /// ```
+    /// { "hookSpecificOutput": { "hookEventName": "PermissionRequest",
+    ///   "decision": { "behavior": "allow" | "deny", "message": "..." } } }
+    /// ```
+    /// For `PermissionRequest` hook, codex honors `allow` to skip its
+    /// terminal y/n prompt; empty stdout is treated as `None` and codex
+    /// falls back to the terminal prompt (which would show duplicate UI).
+    private struct PermissionRequestOutput: Codable {
+        struct HookSpecificOutput: Codable {
+            struct Decision: Codable {
+                var behavior: String
+                var message: String?
+            }
+
+            var hookEventName: String
+            var decision: Decision
+        }
+
+        var hookSpecificOutput: HookSpecificOutput
+
+        static func allow() -> Self {
+            Self(
+                hookSpecificOutput: .init(
+                    hookEventName: CodexHookEventName.permissionRequest.rawValue,
+                    decision: .init(behavior: "allow", message: nil)
+                )
+            )
+        }
+
+        static func deny(message: String) -> Self {
+            Self(
+                hookSpecificOutput: .init(
+                    hookEventName: CodexHookEventName.permissionRequest.rawValue,
+                    decision: .init(behavior: "deny", message: message)
+                )
+            )
+        }
+    }
+
+    public static func standardOutput(
+        for response: BridgeResponse,
+        hookEventName: CodexHookEventName
+    ) throws -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 
         switch response {
         case .acknowledged:
-            return nil
+            // PermissionRequest treats absent stdout as `None` and falls back
+            // to the terminal approval prompt (= double UI). Explicitly emit
+            // `allow` so codex short-circuits its prompt. Other events can
+            // stay silent — ack means "nothing to say".
+            guard hookEventName == .permissionRequest else {
+                return nil
+            }
+            return try appendNewline(encoder.encode(PermissionRequestOutput.allow()))
         case let .codexHookDirective(directive):
             let data: Data
 
             switch directive {
             case let .deny(reason):
-                data = try encoder.encode(LegacyBlockOutput(reason: reason))
+                if hookEventName == .permissionRequest {
+                    data = try encoder.encode(PermissionRequestOutput.deny(message: reason))
+                } else {
+                    // Legacy PreToolUse block schema — still accepted by codex.
+                    data = try encoder.encode(LegacyBlockOutput(reason: reason))
+                }
             }
 
-            var line = data
-            line.append(UInt8(ascii: "\n"))
-            return line
+            return appendNewline(data)
         case .claudeHookDirective:
             return nil
         case .openCodeHookDirective:
@@ -256,6 +309,12 @@ public enum CodexHookOutputEncoder {
         case .cursorHookDirective:
             return nil
         }
+    }
+
+    private static func appendNewline(_ data: Data) -> Data {
+        var line = data
+        line.append(UInt8(ascii: "\n"))
+        return line
     }
 }
 

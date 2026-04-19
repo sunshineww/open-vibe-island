@@ -79,7 +79,10 @@ struct OpenIslandHooksCLI {
                             ]
                         )
 
-                        if let output = try CodexHookOutputEncoder.standardOutput(for: response) {
+                        if let output = try CodexHookOutputEncoder.standardOutput(
+                            for: response,
+                            hookEventName: payload.hookEventName
+                        ) {
                             FileHandle.standardOutput.write(output)
                         }
                     } else {
