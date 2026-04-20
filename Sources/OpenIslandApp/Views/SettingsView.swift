@@ -10,9 +10,9 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case display
     case sound
     case appearance
+    case scout
     case watch
     case shortcuts
-    case lab
     case about
 
     var id: String { rawValue }
@@ -22,11 +22,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .general:    lang.t("settings.tab.general")
         case .setup:      lang.t("settings.tab.setup")
         case .appearance: lang.t("settings.tab.appearance")
+        case .scout:      lang.t("settings.tab.scout")
         case .display:    lang.t("settings.tab.display")
         case .sound:      lang.t("settings.tab.sound")
         case .watch:      "Watch"
         case .shortcuts:  lang.t("settings.tab.shortcuts")
-        case .lab:        lang.t("settings.tab.lab")
         case .about:      lang.t("settings.tab.about")
         }
     }
@@ -36,11 +36,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .general:    "gearshape.fill"
         case .setup:      "arrow.down.circle.fill"
         case .appearance: "paintbrush.fill"
+        case .scout:      "figure.walk.circle.fill"
         case .display:    "textformat.size"
         case .sound:      "speaker.wave.2.fill"
         case .watch:      "applewatch"
         case .shortcuts:  "keyboard.fill"
-        case .lab:        "flask.fill"
         case .about:      "info.circle.fill"
         }
     }
@@ -50,20 +50,20 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .general:    .gray
         case .setup:      .orange
         case .appearance: .purple
+        case .scout:      .pink
         case .display:    .blue
         case .sound:      .green
         case .watch:      .cyan
         case .shortcuts:  .gray
-        case .lab:        .pink
         case .about:      .blue
         }
     }
 
     var section: SettingsSection {
         switch self {
-        case .general, .setup, .display, .sound, .appearance, .watch: .system
-        case .shortcuts, .lab:                                        .advanced
-        case .about:                                                  .app
+        case .general, .setup, .display, .sound, .appearance, .scout, .watch: .system
+        case .shortcuts:                                                      .advanced
+        case .about:                                                          .app
         }
     }
 }
@@ -150,7 +150,7 @@ struct SettingsView: View {
                 WatchSettingsPane(model: model)
             case .shortcuts:
                 PlaceholderSettingsPane(model: model, titleKey: "settings.tab.shortcuts", subtitleKey: "settings.shortcuts.comingSoon")
-            case .lab:
+            case .scout:
                 ScoutStatePreviewPane(model: model)
             case .about:
                 AboutSettingsPane(model: model)

@@ -9,6 +9,7 @@
 "settings.tab.sound" = "Sound";
 "settings.tab.shortcuts" = "Shortcuts";
 "settings.tab.lab" = "Lab";
+"settings.tab.scout" = "Scout";
 "settings.tab.about" = "About";
 
 /* Settings - Section Headers */

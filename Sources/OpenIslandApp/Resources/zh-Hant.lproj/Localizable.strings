@@ -9,6 +9,7 @@
 "settings.tab.sound" = "聲音";
 "settings.tab.shortcuts" = "快捷鍵";
 "settings.tab.lab" = "實驗室";
+"settings.tab.scout" = "像素小人";
 "settings.tab.about" = "關於";
 
 /* Settings - Section Headers */
