@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Cyberpunk Session List Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #050508;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    justify-content: center;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 255, 229, 0.015) 2px,
+      rgba(0, 255, 229, 0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  .panel {
+    width: 620px;
+    background: linear-gradient(180deg, #08080f 0%, #0a0a16 100%);
+    border-radius: 24px;
+    padding: 16px 18px;
+    border: 1px solid rgba(0, 255, 229, 0.08);
+  }
+
+  .session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* ─── Card Container ─── */
+  .card-container {
+    position: relative;
+    cursor: pointer;
+    transition: all 0.25s ease;
+  }
+
+  .card-container::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 18px;
+    opacity: 0;
+    filter: blur(10px);
+    transition: opacity 0.3s ease;
+    z-index: -1;
+  }
+
+  .card-container:hover::before {
+    opacity: 0.6;
+  }
+
+  /* Phase-specific glow colors */
+  .card-container.phase-running::before  { background: linear-gradient(135deg, #6e9fff, #b388ff, #6e9fff); }
+  .card-container.phase-completed::before { background: linear-gradient(135deg, #00ff88, #00ffe5, #00ff88); }
+  .card-container.phase-approval::before { background: linear-gradient(135deg, #ff9500, #ff5050, #ff9500); }
+  .card-container.phase-question::before { background: linear-gradient(135deg, #ffd600, #ff9500, #ffd600); }
+
+  /* ─── Card ─── */
+  .card {
+    background: linear-gradient(180deg, #0a0a14 0%, #0d0d1a 100%);
+    border: 1px solid var(--border-color, rgba(0, 255, 229, 0.2));
+    border-radius: 16px;
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.25s ease;
+  }
+
+  .card-container:hover .card {
+    border-color: var(--border-hover, rgba(0, 255, 229, 0.45));
+    box-shadow: 0 0 20px var(--glow, rgba(0, 255, 229, 0.08));
+  }
+
+  /* Circuit line at top */
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 16px; right: 16px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent, #00ffe5), transparent);
+    opacity: 0.3;
+  }
+
+  /* Grid pattern */
+  .card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, rgba(0, 255, 229, 0.02) 1px, transparent 1px),
+      linear-gradient(rgba(0, 255, 229, 0.02) 1px, transparent 1px);
+    background-size: 20px 20px;
+    pointer-events: none;
+    border-radius: 16px;
+  }
+
+  /* Phase color variables */
+  .phase-running  { --accent: #6e9fff; --border-color: rgba(110,159,255,0.3); --border-hover: rgba(110,159,255,0.5); --glow: rgba(110,159,255,0.12); --text-glow: rgba(110,159,255,0.3); }
+  .phase-completed { --accent: #00ff88; --border-color: rgba(0,255,136,0.3); --border-hover: rgba(0,255,136,0.5); --glow: rgba(0,255,136,0.1); --text-glow: rgba(0,255,136,0.3); }
+  .phase-approval  { --accent: #ff9500; --border-color: rgba(255,149,0,0.3); --border-hover: rgba(255,149,0,0.5); --glow: rgba(255,149,0,0.12); --text-glow: rgba(255,149,0,0.3); }
+  .phase-question  { --accent: #ffd600; --border-color: rgba(255,214,0,0.3); --border-hover: rgba(255,214,0,0.5); --glow: rgba(255,214,0,0.12); --text-glow: rgba(255,214,0,0.3); }
+
+  /* ─── Scout pixel art ─── */
+  .scout-area {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .scout-canvas, .badge-canvas {
+    image-rendering: pixelated;
+  }
+
+  /* ─── Header ─── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .title {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 700;
+    color: #e0e8f0;
+    text-shadow: 0 0 10px var(--text-glow, rgba(0,255,229,0.3));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tags {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  .tag {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .tag-tool {
+    color: #00ffe5;
+    border-color: rgba(0, 255, 229, 0.3);
+    background: rgba(0, 255, 229, 0.08);
+    text-shadow: 0 0 8px rgba(0, 255, 229, 0.4);
+  }
+
+  .tag-terminal {
+    color: #b388ff;
+    border-color: rgba(179, 136, 255, 0.3);
+    background: rgba(179, 136, 255, 0.08);
+    text-shadow: 0 0 8px rgba(179, 136, 255, 0.4);
+  }
+
+  .tag-time {
+    color: #80cbc4;
+    border-color: rgba(128, 203, 196, 0.2);
+    background: rgba(128, 203, 196, 0.06);
+  }
+
+  /* ─── Content ─── */
+  .content {
+    position: relative;
+    z-index: 1;
+    margin-top: 8px;
+  }
+
+  .prompt-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+    color: #a0aec0;
+  }
+
+  .prompt-chevron {
+    color: var(--accent, #00ffe5);
+    font-size: 14px;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(0, 255, 229, 0.6);
+    opacity: 0.9;
+  }
+
+  .activity-line {
+    margin-top: 5px;
+    font-size: 13px;
+    color: var(--accent, #00ffe5);
+    opacity: 0.7;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ─── Subagent section ─── */
+  .subagents {
+    position: relative;
+    z-index: 1;
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  .subagent-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #00ffe5;
+    opacity: 0.7;
+    margin-bottom: 4px;
+  }
+
+  .subagent-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .subagent-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .subagent-dot.running { background: #6e9fff; box-shadow: 0 0 4px #6e9fff; }
+  .subagent-dot.done { background: #00ff88; box-shadow: 0 0 4px #00ff88; }
+
+  .subagent-time {
+    color: rgba(255,255,255,0.35);
+    font-size: 10px;
+    margin-left: auto;
+  }
+
+  /* ─── Completion card ─── */
+  .completion-section {
+    position: relative;
+    z-index: 1;
+    margin-top: 10px;
+  }
+
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent,
+      var(--accent, rgba(0,255,229,0.2)) 10%,
+      rgba(255,0,170,0.15) 50%,
+      var(--accent, rgba(0,255,229,0.2)) 90%,
+      transparent
+    );
+    margin: 14px 0;
+    position: relative;
+  }
+
+  .divider::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: -2px;
+    width: 6px; height: 6px;
+    background: var(--accent, #00ffe5);
+    border-radius: 50%;
+    transform: translateX(-50%);
+    box-shadow: 0 0 8px var(--accent, #00ffe5);
+    animation: dotPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes dotPulse {
+    0%, 100% { opacity: 0.5; box-shadow: 0 0 4px var(--accent, #00ffe5); }
+    50% { opacity: 1; box-shadow: 0 0 12px var(--accent, #00ffe5); }
+  }
+
+  .response-box {
+    padding: 14px 16px;
+    background: rgba(0, 255, 229, 0.03);
+    border: 1px solid rgba(0, 255, 229, 0.1);
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #d0d8e4;
+  }
+
+  .response-box .highlight {
+    color: var(--accent, #00ffe5);
+    text-shadow: 0 0 6px var(--accent, rgba(0,255,229,0.3));
+  }
+
+  .response-box code {
+    color: #b0fef0;
+    background: rgba(0,255,229,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid rgba(0,255,229,0.1);
+    font-size: 11px;
+  }
+
+  .completion-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+    gap: 8px;
+  }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: 1px solid;
+    transition: all 0.2s;
+  }
+
+  .status-badge:hover {
+    filter: brightness(1.3);
+  }
+
+  .badge-done {
+    color: #00ff88;
+    border-color: rgba(0,255,136,0.3);
+    background: rgba(0,255,136,0.08);
+    text-shadow: 0 0 8px rgba(0,255,136,0.5);
+  }
+
+  .badge-done .dot {
+    width: 5px; height: 5px;
+    background: #00ff88;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #00ff88;
+    animation: dotPulse 1.5s ease-in-out infinite;
+  }
+
+  .badge-running {
+    color: #6e9fff;
+    border-color: rgba(110,159,255,0.3);
+    background: rgba(110,159,255,0.06);
+    text-shadow: 0 0 8px rgba(110,159,255,0.5);
+  }
+
+  .badge-approve {
+    color: #ff9500;
+    border-color: rgba(255,149,0,0.3);
+    background: rgba(255,149,0,0.06);
+  }
+
+  .badge-deny {
+    color: #ff5050;
+    border-color: rgba(255,80,80,0.3);
+    background: rgba(255,80,80,0.06);
+  }
+
+  /* ─── Footer ─── */
+  .footer {
+    text-align: center;
+    padding: 10px 0 4px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .footer a {
+    color: rgba(0, 255, 229, 0.35);
+    font-size: 12px;
+    text-decoration: none;
+    letter-spacing: 0.5px;
+    transition: all 0.2s;
+  }
+
+  .footer a:hover {
+    color: rgba(0, 255, 229, 0.7);
+    text-shadow: 0 0 8px rgba(0, 255, 229, 0.3);
+  }
+
+  /* ─── Input reply ─── */
+  .reply-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .reply-input {
+    flex: 1;
+    background: rgba(0,255,229,0.03);
+    border: 1px solid rgba(0,255,229,0.12);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #e0e8f0;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .reply-input::placeholder {
+    color: rgba(255,255,255,0.2);
+  }
+
+  .reply-input:focus {
+    border-color: rgba(0,255,229,0.35);
+    box-shadow: 0 0 8px rgba(0,255,229,0.1);
+  }
+
+  .reply-btn {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,255,229,0.2);
+    background: rgba(0,255,229,0.06);
+    color: rgba(0,255,229,0.6);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .reply-btn:hover {
+    background: rgba(0,255,229,0.15);
+    border-color: rgba(0,255,229,0.4);
+    color: #00ffe5;
+    box-shadow: 0 0 12px rgba(0,255,229,0.2);
+  }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <div class="session-list">
+
+    <!-- 1. Running with subagent -->
+    <div class="card-container phase-running">
+      <div class="card">
+        <div class="header">
+          <div class="scout-area">
+            <canvas id="s1" width="16" height="16" class="scout-canvas"></canvas>
+            <canvas id="b1" width="14" height="14" class="badge-canvas"></canvas>
+          </div>
+          <div class="title">super-earn &middot; /earn-skills:spec</div>
+          <div class="tags">
+            <span class="tag tag-tool">Claude Code</span>
+            <span class="tag tag-terminal">IntelliJ IDEA</span>
+            <span class="tag tag-time">&lt;1m</span>
+          </div>
+        </div>
+        <div class="content">
+          <div class="prompt-line"><span class="prompt-chevron">&gt;</span> You: EARN-26197</div>
+          <div class="activity-line">Agent: Super Earn &zwnj;&#8203;&#8203;支持白名单。需求描述：项目如果配置了...</div>
+        </div>
+        <div class="subagents">
+          <div class="subagent-header">&YscoutBranchIcon; 子代理 (1)</div>
+          <div class="subagent-row">
+            <div class="subagent-dot running"></div>
+            <span>general-purpose</span>
+            <span style="color:rgba(255,255,255,0.45)">(分析 super-earn 白名单需求)</span>
+            <span class="subagent-time">4s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Running with tool -->
+    <div class="card-container phase-running">
+      <div class="card">
+        <div class="header">
+          <div class="scout-area">
+            <canvas id="s2" width="16" height="16" class="scout-canvas"></canvas>
+            <canvas id="b2" width="14" height="14" class="badge-canvas"></canvas>
+          </div>
+          <div class="title">open-vibe-island &middot; 你好</div>
+          <div class="tags">
+            <span class="tag tag-tool">Codex</span>
+            <span class="tag tag-terminal">VS Code</span>
+            <span class="tag tag-time">&lt;1m</span>
+          </div>
+        </div>
+        <div class="content">
+          <div class="prompt-line"><span class="prompt-chevron">&gt;</span> You: 你去看下文档，codex 官方支持哪些 hook</div>
+          <div class="activity-line">Input</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Completed with response -->
+    <div class="card-container phase-completed">
+      <div class="card">
+        <div class="header">
+          <div class="scout-area">
+            <canvas id="s3" width="16" height="16" class="scout-canvas"></canvas>
+            <canvas id="b3" width="14" height="14" class="badge-canvas"></canvas>
+          </div>
+          <div class="title">open-vibe-island (feat/animated-scout-states)</div>
+          <div class="tags">
+            <span class="tag tag-tool">Claude Code</span>
+            <span class="tag tag-terminal">VS Code</span>
+            <span class="tag tag-time">&lt;1m</span>
+          </div>
+        </div>
+        <div class="content">
+          <div class="prompt-line"><span class="prompt-chevron">&gt;</span> You: 触发下搜索看看</div>
+        </div>
+        <div class="divider"></div>
+        <div class="response-box">
+          刚触发了 <code>Grep</code> 和 <code>Glob</code> 搜索，你看看 island 上搜索状态的放大镜大小如何？
+        </div>
+        <div class="completion-row">
+          <div class="status-badge badge-done">
+            <div class="dot"></div>
+            <span>COMPLETE</span>
+          </div>
+        </div>
+        <div class="reply-row">
+          <input class="reply-input" placeholder="Reply to this session..." />
+          <button class="reply-btn">&uarr;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Approval needed -->
+    <div class="card-container phase-approval">
+      <div class="card">
+        <div class="header">
+          <div class="scout-area">
+            <canvas id="s4" width="16" height="16" class="scout-canvas"></canvas>
+            <canvas id="b4" width="14" height="14" class="badge-canvas"></canvas>
+          </div>
+          <div class="title">indicator &middot; 排查 eureka 接口</div>
+          <div class="tags">
+            <span class="tag tag-tool">Claude Code</span>
+            <span class="tag tag-terminal">Ghostty</span>
+            <span class="tag tag-time">2m</span>
+          </div>
+        </div>
+        <div class="content">
+          <div class="prompt-line"><span class="prompt-chevron">&gt;</span> You: 帮我排查下这个接口</div>
+        </div>
+        <div class="divider"></div>
+        <div class="response-box">
+          Allow <span class="highlight">Bash</span>: curl -s 'http://localhost:9320/v1/private/api/health'
+        </div>
+        <div class="completion-row">
+          <div class="status-badge badge-deny">DENY</div>
+          <div class="status-badge badge-approve">
+            <div class="dot" style="background:#ff9500;box-shadow:0 0 8px #ff9500"></div>
+            APPROVE
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5-7. Completed (compact rows) -->
+    <div class="card-container phase-completed">
+      <div class="card">
+        <div class="header">
+          <div class="scout-area">
+            <canvas id="s5" width="16" height="16" class="scout-canvas"></canvas>
+            <canvas id="b5" width="14" height="14" class="badge-canvas"></canvas>
+          </div>
+          <div class="title">admin-ui</div>
+          <div class="tags">
+            <span class="tag tag-tool">Claude Code</span>
+            <span class="tag tag-terminal">Unknown</span>
+            <span class="tag tag-time">&lt;1m</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-container phase-completed">
+      <div class="card">
+        <div class="header">
+          <div class="scout-area">
+            <canvas id="s6" width="16" height="16" class="scout-canvas"></canvas>
+            <canvas id="b6" width="14" height="14" class="badge-canvas"></canvas>
+          </div>
+          <div class="title">AiOps-v2</div>
+          <div class="tags">
+            <span class="tag tag-tool">Claude Code</span>
+            <span class="tag tag-terminal">PyCharm</span>
+            <span class="tag tag-time">&lt;1m</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-container phase-completed">
+      <div class="card">
+        <div class="header">
+          <div class="scout-area">
+            <canvas id="s7" width="16" height="16" class="scout-canvas"></canvas>
+            <canvas id="b7" width="14" height="14" class="badge-canvas"></canvas>
+          </div>
+          <div class="title">earn-ai-tools</div>
+          <div class="tags">
+            <span class="tag tag-tool">Claude Code</span>
+            <span class="tag tag-terminal">Unknown</span>
+            <span class="tag tag-time">&lt;1m</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    <a href="#">显示全部 9 个会话</a>
+  </div>
+</div>
+
+<script>
+// Pixel art patterns
+const patterns = {
+  // Wizard (thinking/running)
+  wizard: [
+    '..BBBB..',
+    '.BHHHB..',
+    'BHHHHHB.',
+    'BHEEHB..',
+    '.BHHB...',
+    '.BBBBBB.',
+    '.B.BB.B.',
+    '.B....B.',
+  ],
+  // Trophy (completed)
+  trophy: [
+    '...BB...',
+    '..BGBB..',
+    '.BGGGGB.',
+    'BBGGGGBB',
+    '.BBGGBB.',
+    '..BBBB..',
+    '..B..B..',
+    '.BB..BB.',
+  ],
+  // Shield (approval)
+  shield: [
+    '..BBBB..',
+    '.BBBBBB.',
+    'BBHEEHBB',
+    'BBHHHBBB',
+    '.BBBBBB.',
+    '..BBBB..',
+    '...BB...',
+    '........',
+  ],
+  // Space invader (idle)
+  invader: [
+    '..B..B..',
+    '...BB...',
+    '..BBBB..',
+    '.BB..BB.',
+    'BBBBBBBB',
+    'B.BBBB.B',
+    'B.B..B.B',
+    '..B..B..',
+  ],
+  // Badges
+  checkmark: [
+    '........', '.......B', '......B.', '.....B..',
+    '.B..B...', '..BB....', '...B....', '........',
+  ],
+  dots: [
+    '........', '........', '..B..B..', '........',
+    '........', '..B..B..', '........', '........',
+  ],
+  lightning: [
+    '....BB..', '...BB...', '..BB....', '.BBBBB..',
+    '...BB...', '..BB....', '.BB.....', '........',
+  ],
+  exclamation: [
+    '...BB...', '...BB...', '...BB...', '...BB...',
+    '...BB...', '........', '...BB...', '........',
+  ],
+};
+
+const colorSchemes = {
+  running:   { B: '#6e9fff', H: '#9bbcff', E: '#0a0a14', G: '#6e9fff' },
+  completed: { B: '#00cc6a', H: '#00ff88', E: '#0a0a14', G: '#00ff88' },
+  approval:  { B: '#ff9500', H: '#ffb84d', E: '#0a0a14', G: '#ff9500' },
+  question:  { B: '#ffd600', H: '#ffe566', E: '#0a0a14', G: '#ffd600' },
+};
+
+function drawPixels(canvasId, pattern, colors, cellSize) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const size = cellSize || canvas.width / 8;
+  pattern.forEach((row, y) => {
+    [...row].forEach((ch, x) => {
+      if (ch !== '.' && colors[ch]) {
+        ctx.fillStyle = colors[ch];
+        ctx.fillRect(x * size, y * size, size, size);
+      }
+    });
+  });
+}
+
+// Draw all scouts and badges
+drawPixels('s1', patterns.wizard,  colorSchemes.running, 2);
+drawPixels('b1', patterns.lightning, { B: '#b388ff' }, 1.75);
+
+drawPixels('s2', patterns.wizard,  colorSchemes.running, 2);
+drawPixels('b2', patterns.dots,    { B: '#6e9fff' }, 1.75);
+
+drawPixels('s3', patterns.trophy,  colorSchemes.completed, 2);
+drawPixels('b3', patterns.checkmark, { B: '#ffffff' }, 1.75);
+
+drawPixels('s4', patterns.shield,  colorSchemes.approval, 2);
+drawPixels('b4', patterns.exclamation, { B: '#ff9500' }, 1.75);
+
+drawPixels('s5', patterns.trophy,  colorSchemes.completed, 2);
+drawPixels('b5', patterns.checkmark, { B: '#ffffff' }, 1.75);
+
+drawPixels('s6', patterns.trophy,  colorSchemes.completed, 2);
+drawPixels('b6', patterns.checkmark, { B: '#ffffff' }, 1.75);
+
+drawPixels('s7', patterns.trophy,  colorSchemes.completed, 2);
+drawPixels('b7', patterns.checkmark, { B: '#ffffff' }, 1.75);
+</script>
+</body>
+</html>
