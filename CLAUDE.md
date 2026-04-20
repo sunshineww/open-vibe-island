@@ -74,37 +74,64 @@ Open `Package.swift` in Xcode for the app target. Requires macOS 14+, Swift 6.2.
 - If a conflict makes the task ambiguous or risky, stop and ask before proceeding.
 - Never use destructive Git commands such as `git reset --hard` without explicit approval.
 
+## Active Branch: `feat/scout-minimal`
+
+> **This is the working baseline. All new work branches from here, NOT from `main`.**
+
+On 2026-04-20 we cut `feat/scout-minimal` as a **minimal downstream fork** over `upstream/main`. It re-homes the parts of our long-lived fork that are genuinely additive (pixel scout, Claude Esc detection, Chinese docs, terminal-jump pane title, notch layout fixes, approval-card bypass) and intentionally drops the parts that diverged from upstream's hook protocol (Codex PreToolUse→PermissionRequest rewrite, codex trace logging, codex bypassPermissions/dontAsk behavioral changes).
+
+Why this branch exists: the old `main` had ~6500 lines of diff against upstream — half of it deep rewrites of the Codex hook layer that guaranteed merge conflicts on every `git fetch upstream`. `feat/scout-minimal` is ~1400 lines of mostly-additive delta; merging upstream changes into it will almost never conflict.
+
+**Going forward:**
+- Active branch: **`feat/scout-minimal`** (on origin). New features branch from here.
+- Legacy `main`: **archive of the old full-fork state**. Do not base new work on it. Keep it around so any commit we decide to re-import (e.g. restoring the Codex PermissionRequest rewrite) can be cherry-picked directly.
+
 ## Branching Rules
 
-- `main` is a protected branch (GitHub branch protection enabled). **NEVER commit or push directly to `main`.**
-- All changes MUST go through a Pull Request to merge into `main`. Direct pushes are rejected.
-- All feature branches must be created from the latest local `main`.
+- **Treat `feat/scout-minimal` as the de-facto trunk for now.** `main` is still the GitHub default / protected branch, but active development targets `feat/scout-minimal` until we decide whether (and when) to promote it to `main`.
+- All feature branches must be created from the latest `feat/scout-minimal` (not `main`, not `upstream/main`).
+  ```bash
+  git fetch origin
+  git checkout -b feat/<topic> origin/feat/scout-minimal
+  ```
 - Each agent or workstream should work on its own branch, named to match the topic (e.g. `feat/<topic>`, `fix/<topic>`).
 - Standard flow: **EnterWorktree → develop → commit → push → ExitWorktree → create PR → merge**.
 - For parallel Agent sub-tasks, use `Agent(isolation: "worktree")` to give each agent its own isolated copy.
-- **All PRs MUST target `main` as base branch.** Never target another feature branch. Chain PRs (A → B → main) are prohibited — they cause silent change loss when merge order is wrong. If work depends on an unmerged branch, wait for it to merge to main first, then rebase.
+- **All PRs MUST target `feat/scout-minimal` as base branch.** Never target another feature branch. Chain PRs (A → B → trunk) are prohibited — they cause silent change loss when merge order is wrong. If work depends on an unmerged branch, wait for it to merge to `feat/scout-minimal` first, then rebase.
 
 ## Upstream Sync
 
 This repo is a **long-lived downstream fork**: `origin` (sunshineww/open-vibe-island) tracks `upstream` (Octane0411/open-vibe-island) as a **strict superset**. We pull upstream changes regularly but **never push back** to upstream.
 
-- `main` always equals `upstream/main` + local customizations (e.g. scout pixel characters, Claude Esc detection, Chinese docs). Main is *supposed* to be ahead of upstream — do NOT try to remove local commits to "match upstream".
-- New feature branches MUST branch from **local `main`**, not `upstream/main`. Branching from upstream drops local customizations that new work may depend on.
+- `feat/scout-minimal` always equals `upstream/main` + the minimal local delta (scout pixel characters, Claude Esc detection, Chinese docs, etc.). It is *supposed* to be ahead of upstream — do NOT try to remove local commits to "match upstream".
+- New feature branches MUST branch from **local `feat/scout-minimal`**, not `upstream/main` and not `main`. Branching from upstream drops local customizations that new work may depend on; branching from `main` pulls in the archived full-fork state you probably don't want.
   ```bash
   git fetch upstream
-  git checkout -b feat/<topic> main   # from local main, not upstream/main
+  git fetch origin
+  git checkout -b feat/<topic> origin/feat/scout-minimal
   ```
-- To pull upstream changes, use `merge` (not `rebase`, not `--ff-only`):
+- To pull upstream changes into the active branch, use `merge` (not `rebase`, not `--ff-only`):
   ```bash
   git fetch upstream
-  git checkout main
+  git checkout feat/scout-minimal
   git merge upstream/main --no-edit
   # resolve conflicts (local customization vs upstream change)
-  git push origin main
+  git push origin feat/scout-minimal
   ```
-  `--ff-only` will refuse because local main is ahead by design.
-- All PRs target `origin/main`. Never open PRs to `Octane0411/open-vibe-island` — we don't contribute back.
+  `--ff-only` will refuse because the branch is ahead by design.
+- All PRs target `origin/feat/scout-minimal`. Never open PRs to `Octane0411/open-vibe-island` — we don't contribute back.
 - When resolving sync conflicts: pure additions from upstream (new features they wrote) usually win; local customizations stay on lines they touched. When in doubt, ask.
+
+### Re-importing something that was dropped
+
+If you ever need a commit that `feat/scout-minimal` intentionally dropped (most likely a piece of the Codex改造), it still lives on the archived `origin/main`. Cherry-pick it:
+```bash
+git fetch origin
+git log origin/main --oneline -- <file>   # locate the commit
+git checkout -b feat/restore-<topic> origin/feat/scout-minimal
+git cherry-pick <sha>
+# resolve conflicts, build, commit, PR
+```
 
 ## Release Policy
 
