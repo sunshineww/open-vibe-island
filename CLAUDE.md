@@ -74,17 +74,32 @@ Open `Package.swift` in Xcode for the app target. Requires macOS 14+, Swift 6.2.
 - If a conflict makes the task ambiguous or risky, stop and ask before proceeding.
 - Never use destructive Git commands such as `git reset --hard` without explicit approval.
 
+## Fork Philosophy (READ THIS FIRST)
+
+> **Our mission: preserve upstream's logic and only extend on top of it. We keep pulling upstream's commits on a regular cadence. We never rewrite upstream's behavior in place.**
+
+Three inviolable principles for anything we add here:
+
+1. **Preserve upstream behavior.** Do not change how upstream's existing code paths act. If upstream treats event X as informational, our additions must not silently start treating X as actionable — add a NEW path/flag/branch instead. If a bug fix requires modifying upstream code, keep the edit as small and surgical as possible and call it out in the commit message.
+
+2. **Extend, don't rewrite.** Prefer additive changes: new files, new enum cases, new branches inside existing switches that `default` through to upstream behavior when our addition doesn't apply. Avoid reshaping shared data models, renaming upstream symbols, or swapping protocol implementations (e.g. PreToolUse→PermissionRequest rewrites) — those moves turn every future `git merge upstream/main` into a minefield.
+
+3. **Merge upstream on a regular cadence.** This repo is a **living downstream fork**, not a snapshot. Upstream evolves; we stay current by pulling it in regularly (see *Upstream Sync* below). Every commit we write must be compatible with that loop — if a change would make the next upstream merge painful, redesign it.
+
+**Consequence of the three principles:** when you face "re-write upstream to fix it" vs "add a new layer on the side", always choose the layer. When you face "make upstream behavior better for our users" vs "preserve upstream behavior exactly", choose preservation and surface the concern in a commit message or docs.
+
 ## Active Branch: `feat/scout-minimal`
 
 > **This is the working baseline. All new work branches from here, NOT from `main`.**
 
-On 2026-04-20 we cut `feat/scout-minimal` as a **minimal downstream fork** over `upstream/main`. It re-homes the parts of our long-lived fork that are genuinely additive (pixel scout, Claude Esc detection, Chinese docs, terminal-jump pane title, notch layout fixes, approval-card bypass) and intentionally drops the parts that diverged from upstream's hook protocol (Codex PreToolUse→PermissionRequest rewrite, codex trace logging, codex bypassPermissions/dontAsk behavioral changes).
+On 2026-04-20 we cut `feat/scout-minimal` as a **minimal downstream fork** over `upstream/main` — applying the Fork Philosophy above to an existing divergent codebase. It re-homes the parts of our long-lived fork that are genuinely additive (pixel scout, Claude Esc detection, Chinese docs, terminal-jump pane title, notch layout fixes, approval-card bypass, permission_prompt notification fallback) and intentionally drops the parts that violated principle #2 (Codex PreToolUse→PermissionRequest rewrite, codex trace logging, codex bypassPermissions/dontAsk behavioral changes — all of which reshaped upstream's hook protocol instead of extending it).
 
 Why this branch exists: the old `main` had ~6500 lines of diff against upstream — half of it deep rewrites of the Codex hook layer that guaranteed merge conflicts on every `git fetch upstream`. `feat/scout-minimal` is ~1400 lines of mostly-additive delta; merging upstream changes into it will almost never conflict.
 
 **Going forward:**
 - Active branch: **`feat/scout-minimal`** (on origin). New features branch from here.
 - Legacy `main`: **archive of the old full-fork state**. Do not base new work on it. Keep it around so any commit we decide to re-import (e.g. restoring the Codex PermissionRequest rewrite) can be cherry-picked directly.
+- **Upstream merges happen here.** Pull `upstream/main` into `feat/scout-minimal` on a regular cadence (see *Upstream Sync*). That is the whole point of having this branch — if we stop doing it, we drift.
 
 ## Branching Rules
 
