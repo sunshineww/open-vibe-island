@@ -110,19 +110,24 @@ public struct SessionCompleted: Equatable, Codable, Sendable {
     /// turn-level completion (`Stop`/`StopFailure`) where the CLI is still
     /// running and waiting for the next user prompt.
     public var isSessionEnd: Bool?
+    /// When `true`, the session reached a terminal state because of an error
+    /// (`StopFailure` on Claude Code, Cursor `status: "error"`, etc).
+    public var isFailure: Bool?
 
     public init(
         sessionID: String,
         summary: String,
         timestamp: Date,
         isInterrupt: Bool? = nil,
-        isSessionEnd: Bool? = nil
+        isSessionEnd: Bool? = nil,
+        isFailure: Bool? = nil
     ) {
         self.sessionID = sessionID
         self.summary = summary
         self.timestamp = timestamp
         self.isInterrupt = isInterrupt
         self.isSessionEnd = isSessionEnd
+        self.isFailure = isFailure
     }
 }
 

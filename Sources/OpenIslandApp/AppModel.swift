@@ -1442,7 +1442,7 @@ final class AppModel {
             score += 1_500
         case .waitingForAnswer:
             score += 1_200
-        case .completed:
+        case .completed, .failed, .interrupted:
             score += 600
         }
 

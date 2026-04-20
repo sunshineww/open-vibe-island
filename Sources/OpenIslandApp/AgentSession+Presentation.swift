@@ -104,6 +104,10 @@ extension AgentSession {
             return "Question"
         case .completed:
             return jumpTarget != nil ? "Idle" : "Completed"
+        case .failed:
+            return "Failed"
+        case .interrupted:
+            return "Interrupted"
         }
     }
 
@@ -220,6 +224,10 @@ extension AgentSession {
             }
 
             return jumpTarget != nil ? "Ready" : "Completed"
+        case .failed:
+            return summary.trimmedForSurface ?? "Failed"
+        case .interrupted:
+            return summary.trimmedForSurface ?? "Interrupted"
         }
     }
 
@@ -235,6 +243,8 @@ extension AgentSession {
             if lastAssistantMessageText?.trimmedForSurface.isEmpty == false {
                 return .idle
             }
+            return .ready
+        case .failed, .interrupted:
             return .ready
         case .waitingForApproval, .waitingForAnswer:
             return .attention

@@ -676,6 +676,8 @@ struct IslandPanelView: View {
         case .waitingForApproval: .orange
         case .waitingForAnswer: .yellow
         case .completed: .blue
+        case .failed: .red
+        case .interrupted: .gray
         }
     }
 
@@ -1270,6 +1272,10 @@ private struct IslandSessionRow: View {
             Color(red: 0.34, green: 0.61, blue: 0.99)
         case .completed:
             Color(red: 0.29, green: 0.86, blue: 0.46)
+        case .failed:
+            Color(red: 0.95, green: 0.30, blue: 0.30)
+        case .interrupted:
+            Color(red: 0.6, green: 0.6, blue: 0.6)
         }
     }
 
@@ -1280,7 +1286,7 @@ private struct IslandSessionRow: View {
             approvalActionBody
         case .waitingForAnswer:
             questionActionBody
-        case .completed:
+        case .completed, .failed, .interrupted:
             completionActionBody
         case .running:
             EmptyView()
