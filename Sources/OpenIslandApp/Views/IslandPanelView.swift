@@ -197,13 +197,43 @@ struct IslandPanelView: View {
     }
 
     /// When Claude is grinding through API retries, surface
-    // Claude API retry visualization is not yet brought over to this
-    // minimal fork; these helpers return nil so any `.closedRetryLabel`
-    // / `.closedRetryTint` callsite falls back gracefully to the regular
-    // scout label + tint.
-    private var closedRetryLabel: String? { nil }
+    /// `"Retry <code> N/M"` in place of the tool label so the user can
+    /// see *why* the turn looks stuck. The code is the raw HTTP status
+    /// when available (`429`, `502`, `504`, `401`, …) or `net` when no
+    /// HTTP response came back (timeout / transport error). Paired with
+    /// `closedRetryTint` for class-based colouring.
+    private var closedRetryLabel: String? {
+        guard let status = closedRetryStatus else { return nil }
+        let codeToken: String
+        if let httpStatus = status.httpStatus {
+            codeToken = "\(httpStatus)"
+        } else {
+            codeToken = "net"
+        }
+        return "Retry \(codeToken) \(status.attempt)/\(status.maxRetries)"
+    }
 
-    private var closedRetryTint: Color? { nil }
+    /// Class-aware tint for the closed-notch retry pill. `.rateLimit`
+    /// (429) gets orange because the user is the one being throttled and
+    /// needs to notice. Server/network/client errors use yellow — we're
+    /// waiting on something outside the user's control.
+    private var closedRetryTint: Color? {
+        guard let status = closedRetryStatus else { return nil }
+        switch status.errorClass {
+        case .rateLimit:
+            return .orange
+        case .serverError, .network, .clientError:
+            return .yellow
+        }
+    }
+
+    private var closedRetryStatus: ClaudeApiRetryStatus? {
+        guard let session = closedSpotlightSession,
+              session.phase == .running else {
+            return nil
+        }
+        return session.claudeMetadata?.retryStatus
+    }
 
     /// Tools that read or modify source files / notebooks.
     private static let codingTools: Set<String> = [
