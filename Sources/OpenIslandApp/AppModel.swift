@@ -1526,6 +1526,8 @@ final class AppModel {
         switch session.phase {
         case .running:
             score += 2_000
+        case .compacting:
+            score += 1_800
         case .waitingForApproval:
             score += 1_500
         case .waitingForAnswer:

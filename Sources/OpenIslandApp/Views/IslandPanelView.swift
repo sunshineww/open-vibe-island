@@ -182,6 +182,8 @@ struct IslandPanelView: View {
             return .failed
         case .interrupted:
             return .interrupted
+        case .compacting:
+            return .compacting
         }
     }
 
@@ -922,6 +924,7 @@ struct IslandPanelView: View {
         }
         return switch phase {
         case .running: .mint
+        case .compacting: Color(red: 1.0, green: 0.75, blue: 0.0)
         case .waitingForApproval: .orange
         case .waitingForAnswer: .yellow
         case .completed: .blue
@@ -1547,6 +1550,8 @@ private struct IslandSessionRow: View {
             .yellow
         case .running:
             Color(red: 0.34, green: 0.61, blue: 0.99)
+        case .compacting:
+            Color(red: 1.0, green: 0.75, blue: 0.0)
         case .completed:
             Color(red: 0.29, green: 0.86, blue: 0.46)
         case .failed:
@@ -1565,7 +1570,7 @@ private struct IslandSessionRow: View {
             questionActionBody
         case .completed, .failed, .interrupted:
             completionActionBody
-        case .running:
+        case .running, .compacting:
             EmptyView()
         }
     }
@@ -1934,6 +1939,8 @@ private struct IslandSessionRow: View {
         switch session.phase {
         case .running:
             return IslandPanelView.scoutPhaseForRunning(toolName: session.currentToolName)
+        case .compacting:
+            return .compacting
         case .waitingForApproval:
             return .waitingForApproval
         case .waitingForAnswer:

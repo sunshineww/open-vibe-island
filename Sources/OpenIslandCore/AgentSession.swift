@@ -98,6 +98,8 @@ public enum SessionPhase: String, Codable, Sendable, CaseIterable {
     /// Session ended because the user interrupted it (Ctrl+C, deny+interrupt,
     /// or an explicit stop-hook interrupt).
     case interrupted
+    /// Claude is compacting/summarizing the conversation context.
+    case compacting
 
     public var displayName: String {
         switch self {
@@ -113,6 +115,8 @@ public enum SessionPhase: String, Codable, Sendable, CaseIterable {
             "Failed"
         case .interrupted:
             "Interrupted"
+        case .compacting:
+            "Compacting"
         }
     }
 
@@ -120,7 +124,7 @@ public enum SessionPhase: String, Codable, Sendable, CaseIterable {
         switch self {
         case .waitingForApproval, .waitingForAnswer:
             true
-        case .running, .completed, .failed, .interrupted:
+        case .running, .completed, .failed, .interrupted, .compacting:
             false
         }
     }
@@ -133,7 +137,7 @@ public enum SessionPhase: String, Codable, Sendable, CaseIterable {
         switch self {
         case .completed, .failed, .interrupted:
             true
-        case .running, .waitingForApproval, .waitingForAnswer:
+        case .running, .waitingForApproval, .waitingForAnswer, .compacting:
             false
         }
     }

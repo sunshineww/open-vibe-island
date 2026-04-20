@@ -49,7 +49,7 @@ enum IslandSurface: Equatable {
             return session.questionPrompt != nil
         case .completed, .failed, .interrupted:
             return true
-        case .running:
+        case .running, .compacting:
             return false
         }
     }

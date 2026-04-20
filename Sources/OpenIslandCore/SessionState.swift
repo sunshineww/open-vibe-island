@@ -102,13 +102,9 @@ public struct SessionState: Equatable, Sendable {
             let keepsPendingQuestion = payload.phase == .running
                 && session.phase == .waitingForAnswer
                 && session.questionPrompt != nil
-            // A session in a terminal phase (completed/failed/interrupted)
-            // should not be pulled back to running by a late event — this
-            // happens when Claude fires PreCompact/PostCompact after Stop.
-            let isTerminalPhase = session.phase.isTerminal
             let preservesActionableState = keepsPendingApproval || keepsPendingQuestion
 
-            if !preservesActionableState && !isTerminalPhase {
+            if !preservesActionableState {
                 session.phase = payload.phase
                 session.summary = payload.summary
                 if payload.phase != .waitingForApproval {

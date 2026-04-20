@@ -67,6 +67,8 @@ public final class BridgeServer: @unchecked Sendable {
     private var pendingAgentDescriptions: [String: String] = [:]
     /// Maps toolUseID → temporary task ID for TaskCreate, so postToolUse can update with real ID.
     private var pendingTaskCreations: [String: String] = [:]
+    /// Saves the session phase before compact so postCompact can restore it.
+    private var phaseBeforeCompact: [String: SessionPhase] = [:]
     private var stateSnapshot = SessionState()
     /// Local working state: tracks sessions emitted by this server between
     /// snapshot pushes from AppModel. This is NOT a duplicate of AppModel's
@@ -988,12 +990,16 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
 
+            // Save current phase so postCompact can restore it, then
+            // switch to .compacting to show the compacting scout animation.
+            let currentPhase = localState.sessions.first(where: { $0.id == payload.sessionID })?.phase ?? .running
+            phaseBeforeCompact[payload.sessionID] = currentPhase
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
                         sessionID: payload.sessionID,
                         summary: "\(payload.resolvedAgentTool.displayName) is compacting the conversation.",
-                        phase: .running,
+                        phase: .compacting,
                         timestamp: .now
                     )
                 )
@@ -1023,18 +1029,20 @@ public final class BridgeServer: @unchecked Sendable {
             send(.response(.acknowledged), to: clientID)
 
         case .postCompact:
-            // PostCompact fires after Claude auto-compacts the transcript.
-            // Treat it like a running activity update — the session resumes
-            // immediately after compaction completes.
             ensureClaudeSessionExists(for: payload)
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
+
+            // Restore phase saved by preCompact. If the session was
+            // .completed before compact, it goes back to .completed
+            // instead of staying stuck in .running.
+            let restoredPhase = phaseBeforeCompact.removeValue(forKey: payload.sessionID) ?? .running
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
                         sessionID: payload.sessionID,
                         summary: "\(payload.resolvedAgentTool.displayName) finished compacting the transcript.",
-                        phase: .running,
+                        phase: restoredPhase,
                         timestamp: .now
                     )
                 )

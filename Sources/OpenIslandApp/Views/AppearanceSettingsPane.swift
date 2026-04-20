@@ -300,6 +300,7 @@ struct AppearanceSettingsPane: View {
     private func phaseTitle(_ phase: SessionPhase) -> String {
         switch phase {
         case .running:            lang.t("settings.appearance.status.running")
+        case .compacting:         lang.t("settings.appearance.status.compacting")
         case .waitingForApproval: lang.t("settings.appearance.status.approval")
         case .waitingForAnswer:   lang.t("settings.appearance.status.answer")
         case .completed:          lang.t("settings.appearance.status.completed")

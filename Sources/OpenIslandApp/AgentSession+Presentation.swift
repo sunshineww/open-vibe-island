@@ -98,6 +98,8 @@ extension AgentSession {
                 return "Live · \(currentTool)"
             }
             return "Live"
+        case .compacting:
+            return "Compacting"
         case .waitingForApproval:
             return "Approval"
         case .waitingForAnswer:
@@ -228,6 +230,8 @@ extension AgentSession {
             // in that case. Only fall back to a state string when
             // there is no prompt line to anchor the row.
             return spotlightPromptLineText == nil ? "Thinking…" : nil
+        case .compacting:
+            return "Compacting context…"
         case .waitingForApproval:
             return permissionRequest?.summary.trimmedForSurface ?? "Approval needed"
         case .waitingForAnswer:
@@ -256,7 +260,7 @@ extension AgentSession {
         }
 
         switch phase {
-        case .running:
+        case .running, .compacting:
             return .live
         case .completed:
             if lastAssistantMessageText?.trimmedForSurface.isEmpty == false {
