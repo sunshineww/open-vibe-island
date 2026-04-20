@@ -61,6 +61,7 @@ public enum ClaudeHookInstaller {
         ("PostToolUseFailure", "*", nil),
         ("PermissionDenied", "*", nil),
         ("PreCompact", nil, nil),
+        ("PostCompact", nil, nil),
     ]
 
     public static func hookCommand(for binaryPath: String, source: String = "claude") -> String {

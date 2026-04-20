@@ -58,6 +58,9 @@ final class SessionDiscoveryCoordinator {
     private let claudeTranscriptDiscovery = ClaudeTranscriptDiscovery()
 
     @ObservationIgnored
+    let claudeTranscriptWatcher = ClaudeTranscriptWatcher()
+
+    @ObservationIgnored
     private var codexSessionPersistenceTask: Task<Void, Never>?
 
     @ObservationIgnored
@@ -177,6 +180,7 @@ final class SessionDiscoveryCoordinator {
 
         // Sync rollout tracking with current sessions.
         refreshCodexRolloutTracking()
+        refreshClaudeInterruptWatching()
     }
 
     // MARK: - Merge & discovery
@@ -226,7 +230,7 @@ final class SessionDiscoveryCoordinator {
 
         merged.origin = existing.origin ?? discovered.origin
         merged.attachmentState = mergeAttachmentState(existing.attachmentState, discovered.attachmentState)
-        merged.jumpTarget = existing.jumpTarget ?? discovered.jumpTarget
+        merged.jumpTarget = mergeJumpTarget(existing.jumpTarget, discovered.jumpTarget)
         merged.codexMetadata = mergeCodexMetadata(existing.codexMetadata, discovered.codexMetadata)
         merged.claudeMetadata = mergeClaudeMetadata(existing.claudeMetadata, discovered.claudeMetadata)
         merged.openCodeMetadata = mergeOpenCodeMetadata(existing.openCodeMetadata, discovered.openCodeMetadata)
@@ -260,6 +264,17 @@ final class SessionDiscoveryCoordinator {
             model: discovered.model ?? existing.model
         )
         return merged.isEmpty ? nil : merged
+    }
+
+    private func mergeJumpTarget(_ existing: JumpTarget?, _ discovered: JumpTarget?) -> JumpTarget? {
+        guard let existing else { return discovered }
+        guard let discovered else { return existing }
+        // Prefer discovered if it has a real terminal (covers resume in new terminal)
+        // Only keep existing when discovered is "Unknown" and existing is known
+        if discovered.terminalApp != "Unknown" {
+            return discovered
+        }
+        return existing
     }
 
     private func mergeCursorMetadata(
@@ -382,6 +397,31 @@ final class SessionDiscoveryCoordinator {
         codexRolloutWatcher.sync(targets: targets)
     }
 
+    // MARK: - Claude transcript watching
+
+    /// Keep the Claude transcript watcher in sync with the currently
+    /// running Claude sessions. Claude Code fires no hook for user Esc
+    /// or for API retry attempts, so we tail each live session's JSONL
+    /// for known sentinels (`[Request interrupted by user` /
+    /// `"subtype":"api_error"`) and route them to `.interrupted` or a
+    /// `retryStatus` decoration in near real-time.
+    func refreshClaudeInterruptWatching() {
+        let targets = state.sessions.compactMap { session -> ClaudeTranscriptWatchTarget? in
+            guard session.tool == .claudeCode,
+                  session.phase == .running,
+                  let transcriptPath = session.claudeMetadata?.transcriptPath,
+                  !transcriptPath.isEmpty else {
+                return nil
+            }
+            return ClaudeTranscriptWatchTarget(
+                sessionID: session.id,
+                transcriptPath: transcriptPath
+            )
+        }
+
+        claudeTranscriptWatcher.sync(targets: targets)
+    }
+
     // MARK: - Codex.app periodic re-discovery
 
     @ObservationIgnored
@@ -441,6 +481,7 @@ final class SessionDiscoveryCoordinator {
         let merged = mergeDiscoveredSessions(newSessions)
         state = SessionState(sessions: merged)
         refreshCodexRolloutTracking()
+        refreshClaudeInterruptWatching()
         scheduleCodexSessionPersistence()
         onStatusMessage?("Discovered \(newRecords.count) new Codex.app session(s) via rollout re-scan.")
     }

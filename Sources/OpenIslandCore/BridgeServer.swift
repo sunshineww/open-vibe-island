@@ -937,6 +937,25 @@ public final class BridgeServer: @unchecked Sendable {
                 )
             )
             send(.response(.acknowledged), to: clientID)
+
+        case .postCompact:
+            // PostCompact fires after Claude auto-compacts the transcript.
+            // Treat it like a running activity update — the session resumes
+            // immediately after compaction completes.
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: "\(payload.resolvedAgentTool.displayName) finished compacting the transcript.",
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
         }
     }
 
@@ -2213,7 +2232,7 @@ public final class BridgeServer: @unchecked Sendable {
         switch hookEventName {
         case .postToolUse, .postToolUseFailure, .permissionDenied, .stop, .stopFailure, .sessionEnd:
             return nil
-        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact:
+        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact, .postCompact:
             return existing
         }
     }
@@ -2230,7 +2249,7 @@ public final class BridgeServer: @unchecked Sendable {
         switch hookEventName {
         case .postToolUse, .postToolUseFailure, .permissionDenied, .stop, .stopFailure, .sessionEnd:
             return nil
-        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact:
+        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact, .postCompact:
             return existing
         }
     }

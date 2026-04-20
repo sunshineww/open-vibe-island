@@ -243,6 +243,68 @@ public struct ClaudeTaskInfo: Equatable, Codable, Sendable, Identifiable {
     }
 }
 
+/// Snapshot of an in-flight Claude Code API retry. Claude Code silently
+/// retries transient failures (HTTP 429, 5xx, network) up to `maxRetries`
+/// with exponential backoff and writes one JSONL line per attempt to the
+/// transcript. The island surfaces the latest attempt as a decoration on
+/// the running session; the struct is cleared by
+/// `BridgeServer.mergedClaudeRetryStatus` on the next hook event that
+/// implies the retry either succeeded or was abandoned.
+public struct ClaudeApiRetryStatus: Equatable, Codable, Sendable {
+    /// Semantic bucket derived from the HTTP status on the transcript
+    /// `api_error` line. Drives the UI tint and label.
+    public enum ErrorClass: String, Codable, Sendable {
+        /// HTTP 429 — user is rate-limited, should slow down.
+        case rateLimit
+        /// HTTP 5xx — upstream/server issue, user waits.
+        case serverError
+        /// No HTTP status (null) — network/timeout level.
+        case network
+        /// HTTP 4xx non-429 — rare; auth/client problem.
+        case clientError
+    }
+
+    public var attempt: Int
+    public var maxRetries: Int
+    public var retryInMs: Double
+    public var httpStatus: Int?
+    public var errorClass: ErrorClass
+    public var startedAt: Date
+    public var updatedAt: Date
+
+    public init(
+        attempt: Int,
+        maxRetries: Int,
+        retryInMs: Double,
+        httpStatus: Int?,
+        errorClass: ErrorClass,
+        startedAt: Date,
+        updatedAt: Date
+    ) {
+        self.attempt = attempt
+        self.maxRetries = maxRetries
+        self.retryInMs = retryInMs
+        self.httpStatus = httpStatus
+        self.errorClass = errorClass
+        self.startedAt = startedAt
+        self.updatedAt = updatedAt
+    }
+
+    public static func classify(httpStatus: Int?) -> ErrorClass {
+        guard let status = httpStatus else { return .network }
+        switch status {
+        case 429:
+            return .rateLimit
+        case 500...599:
+            return .serverError
+        case 400...499:
+            return .clientError
+        default:
+            return .network
+        }
+    }
+}
+
 public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
     public var transcriptPath: String?
     public var initialUserPrompt: String?
@@ -258,6 +320,7 @@ public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
     public var worktreeBranch: String?
     public var activeSubagents: [ClaudeSubagentInfo]
     public var activeTasks: [ClaudeTaskInfo]
+    public var retryStatus: ClaudeApiRetryStatus?
 
     public init(
         transcriptPath: String? = nil,
@@ -273,7 +336,8 @@ public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
         agentType: String? = nil,
         worktreeBranch: String? = nil,
         activeSubagents: [ClaudeSubagentInfo] = [],
-        activeTasks: [ClaudeTaskInfo] = []
+        activeTasks: [ClaudeTaskInfo] = [],
+        retryStatus: ClaudeApiRetryStatus? = nil
     ) {
         self.transcriptPath = transcriptPath
         self.initialUserPrompt = initialUserPrompt
@@ -289,6 +353,7 @@ public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
         self.worktreeBranch = worktreeBranch
         self.activeSubagents = activeSubagents
         self.activeTasks = activeTasks
+        self.retryStatus = retryStatus
     }
 
     public var isEmpty: Bool {
@@ -306,6 +371,7 @@ public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
             && worktreeBranch == nil
             && activeSubagents.isEmpty
             && activeTasks.isEmpty
+            && retryStatus == nil
     }
 }
 
@@ -324,6 +390,7 @@ public enum ClaudeHookEventName: String, Codable, Sendable {
     case subagentStart = "SubagentStart"
     case subagentStop = "SubagentStop"
     case preCompact = "PreCompact"
+    case postCompact = "PostCompact"
 }
 
 public enum ClaudeSessionStartSource: String, Codable, Sendable {
@@ -751,6 +818,8 @@ public extension ClaudeHookPayload {
             return "\(agent) finished a subagent in \(workspaceName)."
         case .preCompact:
             return "\(agent) is compacting the conversation in \(workspaceName)."
+        case .postCompact:
+            return "\(agent) finished compacting the conversation in \(workspaceName)."
         case .sessionEnd:
             return "\(agent) session ended in \(workspaceName)."
         }

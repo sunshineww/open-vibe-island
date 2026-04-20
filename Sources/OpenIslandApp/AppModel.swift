@@ -32,6 +32,8 @@ final class AppModel {
         .waitingForApproval: "#FFB547",
         .waitingForAnswer: "#FFD95A",
         .completed: "#42E86B",
+        .failed: "#F25959",
+        .interrupted: "#F28C40",
     ]
     private static let syntheticClaudeSessionPrefix = "claude-process:"
     private static let liveSessionStalenessWindow: TimeInterval = 15 * 60
@@ -570,6 +572,18 @@ final class AppModel {
                     updateLastActionMessage: false,
                     ingress: .rollout
                 )
+            }
+        }
+
+        discovery.claudeTranscriptWatcher.onInterrupt = { [weak self] sessionID in
+            Task { @MainActor [weak self] in
+                self?.handleClaudeTranscriptInterrupt(sessionID: sessionID)
+            }
+        }
+
+        discovery.claudeTranscriptWatcher.onApiRetry = { [weak self] sessionID, status in
+            Task { @MainActor [weak self] in
+                self?.handleClaudeApiRetry(sessionID: sessionID, status: status)
             }
         }
 
@@ -1177,6 +1191,68 @@ final class AppModel {
         return .deny(message: "Permission denied in Open Island.", interrupt: false)
     }
 
+    /// Called from the Claude transcript watcher when a user-interrupt
+    /// sentinel is detected in a live session's JSONL. Claude Code
+    /// writes one of two variants on Esc, both of which the watcher
+    /// matches: `[Request interrupted by user]` (streaming abort) or
+    /// `[Request interrupted by user for tool use]` (tool abort).
+    /// Neither path fires any hook, so this file-level signal is our
+    /// only real-time route to `.interrupted`. We only honour it while
+    /// the session is still `.running` — otherwise the sentinel is
+    /// historical (e.g. re-observed on restart) and we ignore it.
+    func handleClaudeTranscriptInterrupt(sessionID: String) {
+        guard let session = state.session(id: sessionID),
+              session.tool == .claudeCode,
+              session.phase == .running else {
+            return
+        }
+
+        applyTrackedEvent(
+            .sessionCompleted(
+                SessionCompleted(
+                    sessionID: sessionID,
+                    summary: "Interrupted by user.",
+                    timestamp: .now,
+                    isInterrupt: true
+                )
+            ),
+            updateLastActionMessage: false,
+            ingress: .rollout
+        )
+    }
+
+    /// Called from the Claude transcript watcher when an API retry line
+    /// (`{"type":"system","subtype":"api_error",...}`) lands on disk.
+    /// Claude Code fires no hook for these — the CLI quietly grinds
+    /// through exponential backoff on 429 / 5xx / network errors — so
+    /// the transcript is our only signal. We surface the latest attempt
+    /// as a decoration on the session's `claudeMetadata.retryStatus`;
+    /// the bridge's `mergedClaudeRetryStatus` clears it on the next
+    /// hook event that implies the retry succeeded or the turn ended.
+    func handleClaudeApiRetry(sessionID: String, status: ClaudeApiRetryStatus) {
+        guard let session = state.session(id: sessionID),
+              session.tool == .claudeCode,
+              session.phase == .running else {
+            return
+        }
+
+        let existingMetadata = session.claudeMetadata ?? ClaudeSessionMetadata()
+        var updatedMetadata = existingMetadata
+        updatedMetadata.retryStatus = status
+
+        applyTrackedEvent(
+            .claudeSessionMetadataUpdated(
+                ClaudeSessionMetadataUpdated(
+                    sessionID: sessionID,
+                    claudeMetadata: updatedMetadata,
+                    timestamp: .now
+                )
+            ),
+            updateLastActionMessage: false,
+            ingress: .rollout
+        )
+    }
+
     func applyTrackedEvent(
         _ event: AgentEvent,
         updateLastActionMessage: Bool = true,
@@ -1210,6 +1286,7 @@ final class AppModel {
         }
         synchronizeSelection()
         discovery.refreshCodexRolloutTracking()
+        discovery.refreshClaudeInterruptWatching()
         refreshOverlayPlacementIfVisible()
         discovery.scheduleCodexSessionPersistence()
         discovery.scheduleClaudeSessionPersistence()
@@ -1260,6 +1337,17 @@ final class AppModel {
               notificationSurfaceIsEligibleForPresentation(surface, ingress: ingress),
               let sessionID = surface.sessionID,
               let session = state.session(id: sessionID) else {
+            return
+        }
+
+        // Approval/question prompts bypass suppressFrontmostNotifications —
+        // these surfaces are only resolvable from the island, so the user
+        // needs the card to appear even when the session's terminal is
+        // already frontmost.
+        if session.phase.requiresAttention {
+            notificationPresentationTask?.cancel()
+            notificationPresentationTask = nil
+            presentNotificationSurface(surface)
             return
         }
 
@@ -1442,8 +1530,12 @@ final class AppModel {
             score += 1_500
         case .waitingForAnswer:
             score += 1_200
-        case .completed, .failed, .interrupted:
+        case .completed:
             score += 600
+        case .failed, .interrupted:
+            // Slightly higher than completed so a fresh failure surfaces in
+            // the spotlight and the user notices something went wrong.
+            score += 800
         }
 
         let age = now.timeIntervalSince(session.islandActivityDate)
