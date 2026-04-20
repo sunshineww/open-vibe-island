@@ -824,7 +824,20 @@ public final class BridgeServer: @unchecked Sendable {
             // actionable state anyway so the island tells the user to respond
             // in the terminal — with `requiresTerminalApproval` set, the UI
             // swaps the Allow/Deny buttons for a "Respond in terminal" jump.
+            //
+            // If a PermissionRequest hook already delivered a pending
+            // interaction for this session, the Notification is a duplicate
+            // broadcast (Claude fires both when PermissionRequest matcher="*"
+            // is installed). Skip the duplicate so it doesn't override the
+            // richer PermissionRequest state — e.g. an `AskUserQuestion` whose
+            // selectable options would otherwise be replaced with a
+            // "Respond in terminal" button.
             if payload.notificationType == "permission_prompt" {
+                if pendingClaudeInteractions[payload.sessionID] != nil {
+                    send(.response(.acknowledged), to: clientID)
+                    return
+                }
+
                 let summary = payload.notificationPreview
                     ?? payload.message
                     ?? "Waiting for approval in terminal."
