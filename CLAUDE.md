@@ -84,6 +84,28 @@ Open `Package.swift` in Xcode for the app target. Requires macOS 14+, Swift 6.2.
 - For parallel Agent sub-tasks, use `Agent(isolation: "worktree")` to give each agent its own isolated copy.
 - **All PRs MUST target `main` as base branch.** Never target another feature branch. Chain PRs (A → B → main) are prohibited — they cause silent change loss when merge order is wrong. If work depends on an unmerged branch, wait for it to merge to main first, then rebase.
 
+## Upstream Sync
+
+This repo is a **long-lived downstream fork**: `origin` (sunshineww/open-vibe-island) tracks `upstream` (Octane0411/open-vibe-island) as a **strict superset**. We pull upstream changes regularly but **never push back** to upstream.
+
+- `main` always equals `upstream/main` + local customizations (e.g. scout pixel characters, Claude Esc detection, Chinese docs). Main is *supposed* to be ahead of upstream — do NOT try to remove local commits to "match upstream".
+- New feature branches MUST branch from **local `main`**, not `upstream/main`. Branching from upstream drops local customizations that new work may depend on.
+  ```bash
+  git fetch upstream
+  git checkout -b feat/<topic> main   # from local main, not upstream/main
+  ```
+- To pull upstream changes, use `merge` (not `rebase`, not `--ff-only`):
+  ```bash
+  git fetch upstream
+  git checkout main
+  git merge upstream/main --no-edit
+  # resolve conflicts (local customization vs upstream change)
+  git push origin main
+  ```
+  `--ff-only` will refuse because local main is ahead by design.
+- All PRs target `origin/main`. Never open PRs to `Octane0411/open-vibe-island` — we don't contribute back.
+- When resolving sync conflicts: pure additions from upstream (new features they wrote) usually win; local customizations stay on lines they touched. When in doubt, ask.
+
 ## Release Policy
 
 - **Bilingual required**: Every release MUST include both English and Chinese (Simplified) descriptions. Use the template in `.github/RELEASE_TEMPLATE.md`.
