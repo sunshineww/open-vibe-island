@@ -72,6 +72,12 @@ final class OverlayPanelController {
         self.panel = panel
         let diagnostics = positionPanel(panel, preferredScreenID: preferredScreenID, animated: true)
         presentPanel(panel, activates: Self.shouldActivatePanel(for: model.notchOpenReason))
+        tracePanelPresentation(
+            stage: "overlay_panel.show",
+            panel: panel,
+            diagnostics: diagnostics,
+            model: model
+        )
         panel.ignoresMouseEvents = false
         panel.acceptsMouseMovedEvents = true
         startEventMonitoring()
@@ -182,6 +188,15 @@ final class OverlayPanelController {
         } else {
             panel.orderFrontRegardless()
         }
+    }
+
+    private func tracePanelPresentation(
+        stage: String,
+        panel: NSPanel,
+        diagnostics: OverlayPlacementDiagnostics?,
+        model: AppModel
+    ) {
+        // Trace logging is not part of this minimal fork; intentionally no-op.
     }
 
     private func computeNotchRect(screen: NSScreen?) {
@@ -441,7 +456,8 @@ final class OverlayPanelController {
         liveSessionCount: Int,
         hasAttention: Bool,
         notchStatus: NotchStatus,
-        showsIdleEdgeWhenCollapsed: Bool
+        showsIdleEdgeWhenCollapsed: Bool,
+        toolLabelWidth: CGFloat = 0
     ) -> CGFloat {
         let popWidth = notchStatus == .popping ? 18 : 0
 
@@ -456,9 +472,12 @@ final class OverlayPanelController {
         let sideWidth = max(0, notchHeight - 12) + 10
         let digits = max(1, "\(liveSessionCount)".count)
         let countBadgeWidth = CGFloat(26 + max(0, digits - 1) * 8)
-        let leftWidth = sideWidth + 8 + (hasAttention ? 18 : 0)
+        // Left: scout(14) + spacing(2) + badge(14) + spacing(4) + toolLabel + attention
+        let leftWidth: CGFloat = 14 + 2 + 14 + 4 + toolLabelWidth + (hasAttention ? 18 : 0)
         let rightWidth = max(sideWidth, countBadgeWidth) + (hasAttention ? 18 : 0)
-        let expansionWidth = leftWidth + rightWidth + 16 + (hasAttention ? 6 : 0)
+        // Use 2x the larger side so centered layout never overlaps the notch
+        let sideMax = max(leftWidth, rightWidth)
+        let expansionWidth = (sideMax * 2) + 24 + (hasAttention ? 6 : 0)
         return notchWidth + expansionWidth + CGFloat(popWidth)
     }
 
@@ -532,13 +551,18 @@ final class OverlayPanelController {
             ?? model.surfacedSessions.first(where: { $0.phase == .running })
             ?? model.surfacedSessions.first
 
+        // Estimate tool label width for window sizing
+        let toolLabel = spotlightSession?.currentToolName
+        let toolLabelWidth: CGFloat = toolLabel.map { max(36, CGFloat($0.count) * 6.5) } ?? 0
+
         return Self.closedPanelWidth(
             notchWidth: notchWidth,
             notchHeight: notchHeight,
             liveSessionCount: model.liveSessionCount,
             hasAttention: spotlightSession?.phase.requiresAttention == true,
             notchStatus: model.notchStatus,
-            showsIdleEdgeWhenCollapsed: model.showsIdleEdgeWhenCollapsed
+            showsIdleEdgeWhenCollapsed: model.showsIdleEdgeWhenCollapsed,
+            toolLabelWidth: toolLabelWidth
         )
     }
 
