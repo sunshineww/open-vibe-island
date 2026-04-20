@@ -67,23 +67,3 @@ struct ScoutBadgeView: View {
     }
 }
 
-// MARK: - Spinning loading indicator
-
-struct CompactSpinner: View {
-    let size: CGFloat
-    var tint: Color = .white
-    @State private var rotation: Double = 0
-
-    var body: some View {
-        Circle()
-            .trim(from: 0, to: 0.7)
-            .stroke(tint, style: StrokeStyle(lineWidth: max(1, size * 0.15), lineCap: .round))
-            .frame(width: size, height: size)
-            .rotationEffect(.degrees(rotation))
-            .onAppear {
-                withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
-                    rotation = 360
-                }
-            }
-    }
-}

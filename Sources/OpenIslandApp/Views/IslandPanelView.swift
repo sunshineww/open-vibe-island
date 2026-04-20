@@ -154,19 +154,200 @@ struct IslandPanelView: View {
         return session.phase == .running || session.phase.requiresAttention
     }
 
-    /// Scout icon tint: blue if any running, green if any live, else gray.
+    /// Map the spotlight session's phase + current tool to the pixel scout phase.
+    private var closedScoutPhase: OpenIslandBrandMark.ScoutPhase {
+        guard let session = closedSpotlightSession else {
+            return .idle
+        }
+        // Stale attachment only makes sense while the session is actively
+        // running: a completed / failed / interrupted run should keep its
+        // terminal look (smiley / sad face / pause bar) even if the terminal
+        // window has since been closed.
+        if session.attachmentState == .stale && session.phase == .running {
+            return .stale
+        }
+        switch session.phase {
+        case .running:
+            return Self.scoutPhaseForRunning(toolName: session.currentToolName)
+        case .waitingForApproval:
+            return .waitingForApproval
+        case .waitingForAnswer:
+            return .waitingForAnswer
+        case .completed:
+            if session.isProcessAlive {
+                return .awaitingPrompt
+            }
+            return .completed
+        case .failed:
+            return .failed
+        case .interrupted:
+            return .interrupted
+        }
+    }
+
+    /// Short tool label shown next to the scout icon in the closed notch.
+    private var closedToolLabel: String? {
+        guard let session = closedSpotlightSession,
+              session.phase == .running,
+              let toolName = session.currentToolName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !toolName.isEmpty else {
+            return nil
+        }
+        return Self.displayToolName(toolName)
+    }
+
+    /// When Claude is grinding through API retries, surface
+    // Claude API retry visualization is not yet brought over to this
+    // minimal fork; these helpers return nil so any `.closedRetryLabel`
+    // / `.closedRetryTint` callsite falls back gracefully to the regular
+    // scout label + tint.
+    private var closedRetryLabel: String? { nil }
+
+    private var closedRetryTint: Color? { nil }
+
+    /// Tools that read or modify source files / notebooks.
+    private static let codingTools: Set<String> = [
+        // Claude Code
+        "read", "edit", "write", "multiedit", "notebookedit",
+        "grep", "glob", "lsp",
+        // Codex
+        "apply_patch",
+        // MCP / misc
+        "mcp", "todocreate", "todowrite", "todoread",
+        "taskcreate", "taskupdate", "taskget", "tasklist",
+    ]
+
+    /// Tools that run shell commands or touch background shells.
+    private static let commandTools: Set<String> = [
+        // Claude Code
+        "bash", "exec_command", "killshell", "bashoutput", "slashcommand",
+        // Codex
+        "shell", "write_stdin",
+        // General
+        "computer", "execute",
+    ]
+
+    /// Tools that perform lookups against external knowledge.
+    private static let searchTools: Set<String> = [
+        "websearch", "webfetch", "webresearch",
+        "listmcpresourcestool", "readmcpresourcetool",
+    ]
+
+    /// Tools that delegate work to a sub-agent.
+    private static let subagentTools: Set<String> = [
+        "task", "agent", "spawnagent",
+    ]
+
+    /// Tools that indicate planning / meta-cognition (no primary action).
+    private static let thinkingTools: Set<String> = [
+        "skill", "exitplanmode", "entrplanmode", "enterplanmode",
+        "plan", "todoread",
+    ]
+
+    fileprivate static func scoutPhaseForRunning(toolName: String?) -> OpenIslandBrandMark.ScoutPhase {
+        guard let rawTool = toolName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawTool.isEmpty else {
+            return .thinking
+        }
+        let tool = rawTool.lowercased()
+        if tool == "__compacting__" { return .compacting }
+        if subagentTools.contains(tool) { return .subagent }
+        if codingTools.contains(tool) { return .coding }
+        if commandTools.contains(tool) { return .runningCommand }
+        if searchTools.contains(tool) { return .searching }
+        if thinkingTools.contains(tool) { return .thinking }
+
+        // MCP tool namespace (mcp__<server>__<tool>). Categorize by the well
+        // known server prefixes we recognize; fall back to searching for the
+        // generic case since most MCP servers expose lookup-style tools.
+        if tool.hasPrefix("mcp__") {
+            if tool.contains("chrome-devtools") || tool.contains("browser")
+                || tool.contains("puppeteer") || tool.contains("playwright") {
+                return .runningCommand
+            }
+            if tool.contains("ide") && tool.contains("executecode") {
+                return .runningCommand
+            }
+            if tool.contains("confluence") || tool.contains("jira")
+                || tool.contains("github") || tool.contains("ghe")
+                || tool.contains("search") || tool.contains("web") {
+                return .searching
+            }
+            return .searching
+        }
+
+        return .thinking
+    }
+
+    private static func displayToolName(_ toolName: String) -> String {
+        switch toolName.lowercased() {
+        case "exec_command":    return "Bash"
+        case "bash":            return "Bash"
+        case "shell":           return "Shell"
+        case "read":            return "Read"
+        case "edit":            return "Edit"
+        case "multiedit":       return "MultiEdit"
+        case "write":           return "Write"
+        case "grep":            return "Grep"
+        case "glob":            return "Glob"
+        case "apply_patch":     return "Patch"
+        case "write_stdin":     return "Input"
+        case "notebookedit":    return "Notebook"
+        case "lsp":             return "LSP"
+        case "websearch":       return "Search"
+        case "webfetch":        return "Fetch"
+        case "webresearch":     return "Research"
+        case "agent":           return "Agent"
+        case "computer":        return "Computer"
+        case "task":            return "Task"
+        case "todowrite":       return "Todo"
+        case "taskcreate",
+             "taskupdate",
+             "taskget",
+             "tasklist":        return "Task"
+        case "killshell":       return "Kill"
+        case "bashoutput":      return "Output"
+        case "slashcommand":    return "Slash"
+        case "skill":           return "Skill"
+        case "plan",
+             "enterplanmode",
+             "entrplanmode",
+             "exitplanmode":    return "Plan"
+        case "__compacting__":  return "Compact"
+        default:
+            if toolName.lowercased().hasPrefix("mcp__") {
+                return "MCP"
+            }
+            return toolName
+        }
+    }
+
+    /// Scout icon tint: color-coded per scout phase.
     private var scoutTint: Color {
         if model.isCustomAppearance, let phase = closedSpotlightSession?.phase {
             return model.statusColor(for: phase)
         }
-        let sessions = model.surfacedSessions
-        if sessions.contains(where: { $0.phase == .running }) {
-            return Color(red: 0.43, green: 0.62, blue: 1.0) // #6E9FFF working blue
+        return Self.scoutPhaseTint(closedScoutPhase)
+    }
+
+    fileprivate static func scoutPhaseTint(_ phase: OpenIslandBrandMark.ScoutPhase) -> Color {
+        switch phase {
+        case .idle:                 return Color(red: 0.75, green: 0.82, blue: 0.9)      // 银灰蓝
+        case .thinking:             return Color(red: 0.43, green: 0.62, blue: 1.0)      // 蓝色
+        case .coding:               return Color(red: 0.0, green: 0.8, blue: 0.85)       // 青色
+        case .runningCommand:       return Color(red: 0.65, green: 0.45, blue: 1.0)      // 紫色
+        case .searching:            return Color(red: 0.3, green: 0.5, blue: 0.95)       // 靛蓝
+        case .subagent:             return Color(red: 0.55, green: 0.85, blue: 0.95)     // 浅青
+        case .waitingForApproval:   return .orange
+        case .waitingForAnswer:     return .yellow
+        case .completed:            return .green
+        case .compacting:           return Color(red: 0.85, green: 0.55, blue: 0.2)      // 琥珀色
+        case .waitingForInput:      return Color(red: 0.5, green: 0.8, blue: 0.5)       // 柔和绿
+        case .awaitingPrompt:       return Color(red: 0.6, green: 0.75, blue: 0.95)     // 浅蓝
+        case .failed:               return Color(red: 0.95, green: 0.35, blue: 0.35)     // 红色
+        case .interrupted:          return Color(red: 0.95, green: 0.55, blue: 0.25)     // 橙红
+        case .stale:                return Color(red: 0.55, green: 0.6, blue: 0.65)      // 冷灰
         }
-        if !sessions.isEmpty {
-            return Color(red: 0.26, green: 0.91, blue: 0.42) // #42E86B idle green
-        }
-        return Color.white.opacity(0.4) // gray
     }
 
     private var countBadgeWidth: CGFloat {
@@ -178,9 +359,27 @@ struct IslandPanelView: View {
         guard !showsIdleEdgeWhenCollapsed else { return 0 }
         guard hasClosedPresence else { return 0 }
         let hasPending = closedSpotlightSession?.phase.requiresAttention == true
-        let leftWidth = sideWidth + 8 + (hasPending ? 18 : 0)
+        let phase = closedScoutPhase
+        // Left: scout(14) + iconSpacing(2) + badge(14) + spacing(4) + toolLabel + spinner
+        var leftWidth: CGFloat = 14 + 2 + 14
+        if phase == .compacting {
+            leftWidth += 2 + 12  // spacing + spinner
+        }
+        // Prefer retry label for width estimation — it's rendered in
+        // place of the tool label when retries are active.
+        let displayLabel = closedRetryLabel ?? closedToolLabel
+        if let label = displayLabel {
+            let estimatedTextWidth = CGFloat(label.count) * 6.5
+            leftWidth += 4 + max(36, estimatedTextWidth)
+        }
+        if hasPending {
+            leftWidth += 18  // attention indicator
+        }
+        // Right: count badge
         let rightWidth = max(sideWidth, countBadgeWidth) + (hasPending ? 18 : 0)
-        return leftWidth + rightWidth + 16 + (hasPending ? 6 : 0)
+        // Use 2x the larger side so the centered layout never overlaps the notch
+        let sideMax = max(leftWidth, rightWidth)
+        return (sideMax * 2) + 24 + (hasPending ? 6 : 0)
     }
 
     /// Composite key combining `hasClosedPresence` and `expansionWidth` so a
@@ -258,7 +457,7 @@ struct IslandPanelView: View {
 
         let currentWidth = usesOpenedVisualState ? openedWidth : closedTotalWidth
         let currentHeight = usesOpenedVisualState ? openedHeight : closedTotalHeight
-        let horizontalInset = usesOpenedVisualState ? 14.0 : 0.0
+        let horizontalInset = usesOpenedVisualState ? 14.0 : 10.0
         let bottomInset = usesOpenedVisualState ? 14.0 : 0.0
         let surfaceWidth = currentWidth + (horizontalInset * 2)
         let surfaceHeight = currentHeight + bottomInset
@@ -289,7 +488,7 @@ struct IslandPanelView: View {
                 .frame(width: currentWidth, height: currentHeight, alignment: .top)
                 .padding(.horizontal, horizontalInset)
                 .padding(.bottom, bottomInset)
-                .clipShape(surfaceShape)
+                .clipShape(usesOpenedVisualState ? AnyShape(surfaceShape) : AnyShape(Rectangle()))
                 .overlay(alignment: .top) {
                     // Black strip to blend with physical notch at the very top
                     Rectangle()
@@ -363,28 +562,45 @@ struct IslandPanelView: View {
                             )
                             .matchedGeometryEffect(id: "island-icon", in: notchNamespace, isSource: true)
                         } else {
-                            OpenIslandIcon(size: 14, isAnimating: hasClosedActivity, tint: scoutTint)
+                            OpenIslandIcon(size: 14, isAnimating: hasClosedActivity, tint: scoutTint, scoutPhase: closedScoutPhase)
                                 .matchedGeometryEffect(id: "island-icon", in: notchNamespace, isSource: true)
                         }
 
-                        if closedSpotlightSession?.phase.requiresAttention == true {
+                        if let retryLabel = closedRetryLabel, let retryTint = closedRetryTint {
+                            Text(retryLabel)
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(retryTint)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .transition(.opacity)
+                        } else if let toolLabel = closedToolLabel {
+                            Text(toolLabel)
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(scoutTint.opacity(0.8))
+                                .lineLimit(1)
+                                .fixedSize()
+                                .transition(.opacity)
+                        }
+
+                        if closedSpotlightSession?.phase.requiresAttention == true, model.isCustomAppearance {
                             AttentionIndicator(
                                 size: 14,
                                 color: phaseColor(closedSpotlightSession?.phase ?? .running)
                             )
                         }
                     }
-                    .frame(width: sideWidth + 8 + (closedSpotlightSession?.phase.requiresAttention == true ? 18 : 0))
                 }
 
                 if !hasClosedPresence {
-                    Rectangle()
-                        .fill(Color.clear)
-                        .frame(width: closedNotchWidth - 20)
+                    Spacer()
+                        .frame(minWidth: closedNotchWidth - 20)
                 } else {
-                    Rectangle()
-                        .fill(Color.black)
-                        .frame(width: closedNotchWidth - NotchShape.closedTopRadius + (isPopping ? 18 : 0))
+                    // Flex spacer pushes the left scout block to `horizontalInset`
+                    // from surface edge and the right count badge to the opposite
+                    // edge, so the gaps are symmetric (= `horizontalInset`, 10pt
+                    // on the closed state). Upstream's CentralActivityLabel
+                    // feature is preserved as an overlay on the spacer.
+                    Spacer(minLength: 0)
                         .overlay(
                             CentralActivityLabel(
                                 toolName: closedSpotlightSession?.currentToolName,
@@ -417,8 +633,13 @@ struct IslandPanelView: View {
                 let metrics = openedHeaderMetrics(for: geometry.size.width)
 
                 HStack(spacing: 0) {
-                    usageLaneView(providerGroups.left, alignment: .leading)
-                        .frame(width: metrics.leftUsageWidth, alignment: .leading)
+                    if providerGroups.left.isEmpty {
+                        openedSessionSummary
+                            .frame(width: metrics.leftUsageWidth, alignment: .leading)
+                    } else {
+                        usageLaneView(providerGroups.left, alignment: .leading)
+                            .frame(width: metrics.leftUsageWidth, alignment: .leading)
+                    }
 
                     Color.clear
                         .frame(width: metrics.centerGapWidth)
@@ -577,7 +798,7 @@ struct IslandPanelView: View {
     private static let maxSessionListHeight: CGFloat = 560
 
     private var sessionList: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
+        TimelineView(.periodic(from: .now, by: 5)) { context in
             if isNotificationMode {
                 // Notification mode: NO ScrollView — content sizes naturally
                 sessionListContent(context: context)
@@ -597,8 +818,6 @@ struct IslandPanelView: View {
                     }
             } else {
                 // List mode: scroll when content exceeds the panel's available space.
-                // The parent frame constraint (currentHeight - closedNotchHeight - 12)
-                // determines the viewport; ScrollView handles overflow naturally.
                 ScrollView(.vertical) {
                     sessionListContent(context: context)
                 }
@@ -676,9 +895,29 @@ struct IslandPanelView: View {
         case .waitingForApproval: .orange
         case .waitingForAnswer: .yellow
         case .completed: .blue
-        case .failed: .red
-        case .interrupted: .gray
+        case .failed: Color(red: 0.95, green: 0.35, blue: 0.35)
+        case .interrupted: Color(red: 0.95, green: 0.55, blue: 0.25)
         }
+    }
+
+    @ViewBuilder
+    /// Left-side session status summary shown when no usage providers are available.
+    private var openedSessionSummary: some View {
+        let active = model.allSessions.filter { $0.phase == .running || $0.phase.requiresAttention }.count
+        let total = model.allSessions.count
+
+        return HStack(spacing: 0) {
+            Text("\(total)")
+                .foregroundStyle(.white.opacity(0.8))
+            Text(" sessions · ")
+                .foregroundStyle(.white.opacity(0.35))
+            Text("\(active)")
+                .foregroundStyle(active > 0 ? .mint : .white.opacity(0.5))
+            Text(" active")
+                .foregroundStyle(active > 0 ? .mint.opacity(0.7) : .white.opacity(0.35))
+        }
+        .font(.system(size: 10.5, weight: .medium))
+        .lineLimit(1)
     }
 
     @ViewBuilder
@@ -1126,20 +1365,24 @@ private struct IslandSessionRow: View {
                         }
                     }
 
-                    if showsExpandedContent || isActionable,
-                       let promptLine = session.spotlightPromptLineText ?? expandedPromptLineText {
-                        Text(promptLine)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.62))
-                            .lineLimit(1)
-                    }
+                    // Hide prompt/activity lines when the completion card
+                    // is visible — it already shows the same content.
+                    if !isActionable {
+                        if showsExpandedContent,
+                           let promptLine = session.spotlightPromptLineText ?? expandedPromptLineText {
+                            Text(promptLine)
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.62))
+                                .lineLimit(1)
+                        }
 
-                    if showsExpandedContent || isActionable,
-                       let activityLine = session.spotlightActivityLineText ?? expandedActivityLineText {
-                        Text(activityLine)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(activityColor(for: presence).opacity(0.94))
-                            .lineLimit(1)
+                        if showsExpandedContent,
+                           let activityLine = session.spotlightActivityLineText ?? expandedActivityLineText {
+                            Text(activityLine)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(activityColor(for: presence).opacity(0.94))
+                                .lineLimit(1)
+                        }
                     }
 
                     if showsExpandedContent,
@@ -1229,7 +1472,11 @@ private struct IslandSessionRow: View {
                 .strokeBorder(actionableBorderColor)
         )
         .compositingGroup()
-        .shadow(color: .black.opacity(0.24), radius: isHighlighted ? 8 : 0, y: isHighlighted ? 6 : 0)
+        .shadow(
+            color: isActionable ? actionableStatusTint.opacity(0.15) : .black.opacity(0.24),
+            radius: isActionable ? 12 : (isHighlighted ? 8 : 0),
+            y: isHighlighted ? 6 : 0
+        )
         .overlay(
             Group {
                 if !isActionable {
@@ -1273,9 +1520,9 @@ private struct IslandSessionRow: View {
         case .completed:
             Color(red: 0.29, green: 0.86, blue: 0.46)
         case .failed:
-            Color(red: 0.95, green: 0.30, blue: 0.30)
+            Color(red: 0.95, green: 0.35, blue: 0.35)
         case .interrupted:
-            Color(red: 0.6, green: 0.6, blue: 0.6)
+            Color(red: 0.95, green: 0.55, blue: 0.25)
         }
     }
 
@@ -1332,22 +1579,33 @@ private struct IslandSessionRow: View {
                     .strokeBorder(.orange.opacity(0.18))
             )
 
-            HStack(spacing: 8) {
-                Button("No") { onApprove?(.deny) }
-                    .buttonStyle(IslandWideButtonStyle(kind: .secondary))
-                Button("Yes") { onApprove?(.allowOnce) }
+            if session.permissionRequest?.requiresTerminalApproval == true {
+                // Approval is blocked in the terminal and we have no way to
+                // reply with a directive (e.g. Notification-driven prompts
+                // from tools that the user did not cover with a
+                // PermissionRequest matcher). Route the user back to the
+                // terminal instead of offering Allow/Deny buttons that can't
+                // actually dispatch.
+                Button("Respond in terminal →") { onJump() }
                     .buttonStyle(IslandWideButtonStyle(kind: .warning))
-                if let toolName = session.permissionRequest?.toolName {
-                    Button("Always Allow (\(toolName))") {
-                        let rule = ClaudePermissionRuleValue(toolName: toolName)
-                        let update = ClaudePermissionUpdate.addRules(
-                            destination: .session,
-                            rules: [rule],
-                            behavior: .allow
-                        )
-                        onApprove?(.allowWithUpdates([update]))
+            } else {
+                HStack(spacing: 8) {
+                    Button("No") { onApprove?(.deny) }
+                        .buttonStyle(IslandWideButtonStyle(kind: .secondary))
+                    Button("Yes") { onApprove?(.allowOnce) }
+                        .buttonStyle(IslandWideButtonStyle(kind: .warning))
+                    if let toolName = session.permissionRequest?.toolName {
+                        Button("Always Allow (\(toolName))") {
+                            let rule = ClaudePermissionRuleValue(toolName: toolName)
+                            let update = ClaudePermissionUpdate.addRules(
+                                destination: .session,
+                                rules: [rule],
+                                behavior: .allow
+                            )
+                            onApprove?(.allowWithUpdates([update]))
+                        }
+                        .buttonStyle(IslandWideButtonStyle(kind: .danger))
                     }
-                    .buttonStyle(IslandWideButtonStyle(kind: .danger))
                 }
             }
         }
@@ -1363,27 +1621,44 @@ private struct IslandSessionRow: View {
         )
     }
 
-    // MARK: - Completion action area
+    // MARK: - Completion action area (cyberpunk style)
 
     private var completionActionBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
+            // Terminal-style prompt line. The "● DONE" neon badge that
+            // used to live at the trailing edge has been removed — the
+            // scout body + check-mark badge at the top of the row
+            // already communicates "completed", and doubling it up just
+            // added visual noise. The `>` glyph itself is enough to
+            // identify this block as the user prompt.
+            HStack(alignment: .top, spacing: 8) {
+                Text(">")
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundStyle(actionableStatusTint)
+                    .shadow(color: actionableStatusTint.opacity(0.6), radius: 4)
+
                 Text(completionPromptLabel)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.75))
                     .lineLimit(2)
 
                 Spacer(minLength: 8)
-
-                Text(lang.t("completion.done"))
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color(red: 0.29, green: 0.86, blue: 0.46).opacity(0.96))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
+            // Circuit-line divider. The decorative centre dot that used
+            // to ride on top of the gradient read as a button / time
+            // marker and confused users; a plain gradient line conveys
+            // "separator" without any extra meaning.
             Rectangle()
-                .fill(.white.opacity(0.04))
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, actionableStatusTint.opacity(0.2), actionableStatusTint.opacity(0.1), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
                 .frame(height: 1)
 
             AutoHeightScrollView(maxHeight: 260) {
@@ -1395,8 +1670,15 @@ private struct IslandSessionRow: View {
             }
 
             if onReply != nil {
+                // Circuit-line divider for reply area
                 Rectangle()
-                    .fill(.white.opacity(0.04))
+                    .fill(
+                        LinearGradient(
+                            colors: [.clear, actionableStatusTint.opacity(0.15), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
                     .frame(height: 1)
 
                 completionReplyInput
@@ -1404,11 +1686,17 @@ private struct IslandSessionRow: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.045))
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.04, green: 0.04, blue: 0.08), Color(red: 0.05, green: 0.05, blue: 0.1)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.white.opacity(0.08))
+                .strokeBorder(actionableStatusTint.opacity(0.2))
         )
     }
 
@@ -1447,10 +1735,14 @@ private struct IslandSessionRow: View {
     // MARK: - Actionable helpers
 
     private var completionPromptLabel: String {
+        // The surrounding layout already paints a green `>` prompt glyph,
+        // so tacking a "You:" prefix onto the text is redundant (and in
+        // zh-* locales it sat there untranslated). Just return the
+        // sanitized prompt; if there is no prompt we render nothing.
         if let prompt = session.latestUserPromptText?.trimmedForNotificationCard, !prompt.isEmpty {
-            return "You: \(prompt)"
+            return prompt
         }
-        return "You:"
+        return ""
     }
 
     private var completionMessageText: String {
@@ -1515,16 +1807,69 @@ private struct IslandSessionRow: View {
     }
 
     private func statusDot(for presence: IslandSessionPresence) -> some View {
-        Circle()
-            .fill(statusTint(for: presence))
-            .frame(width: 9, height: 9)
-            .padding(.top, 6)
+        let rowScoutPhase = rowScoutPhase(for: presence, at: referenceDate)
+        let tint = IslandPanelView.scoutPhaseTint(rowScoutPhase)
+        return HStack(spacing: 1) {
+            OpenIslandBrandMark(
+                size: 16,
+                tint: tint,
+                isAnimating: rowScoutPhase.isAnimated,
+                phase: rowScoutPhase,
+                style: .duotone
+            )
+            .frame(width: 16, height: 16)
+            ScoutBadgeView(
+                size: 14,
+                phase: rowScoutPhase,
+                tint: tint
+            )
+            .frame(width: 14, height: 14)
+            if rowScoutPhase == .compacting {
+                CompactSpinner(size: 12, tint: tint)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private func rowScoutPhase(for presence: IslandSessionPresence, at now: Date) -> OpenIslandBrandMark.ScoutPhase {
+        // Stale attachment only applies to a live run. For any terminal
+        // phase we want the actual outcome (smiley / sad face / pause bar)
+        // to stay on screen.
+        if session.attachmentState == .stale && session.phase == .running {
+            return .stale
+        }
+        switch session.phase {
+        case .running:
+            return IslandPanelView.scoutPhaseForRunning(toolName: session.currentToolName)
+        case .waitingForApproval:
+            return .waitingForApproval
+        case .waitingForAnswer:
+            return .waitingForAnswer
+        case .completed:
+            // Completion card showing → trophy
+            if isActionable {
+                return .completed
+            }
+            if presence == .inactive {
+                return .idle
+            }
+            // Show trophy for 5s after completion, then awaitingPrompt
+            if session.isProcessAlive {
+                let sinceUpdate = now.timeIntervalSince(session.updatedAt)
+                return sinceUpdate < 10 ? .completed : .awaitingPrompt
+            }
+            return .completed
+        case .failed:
+            return .failed
+        case .interrupted:
+            return .interrupted
+        }
     }
 
     /// Prompt line for manually expanded inactive rows (bypasses time-based filter).
     private var expandedPromptLineText: String? {
         guard isManuallyExpanded, let prompt = session.spotlightPromptText else { return nil }
-        return "You: \(prompt)"
+        return prompt
     }
 
     /// Activity line for manually expanded inactive rows (bypasses time-based filter).
@@ -1850,7 +2195,10 @@ private struct ReplyTextField: NSViewRepresentable {
 
 private extension String {
     var trimmedForNotificationCard: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
+        // Delegate to the shared sanitizer so pseudo-tags and image
+        // placeholders are stripped consistently across every island
+        // surface (notification card, session row, completion body).
+        sanitizedForIslandDisplay
     }
 }
 
@@ -1922,14 +2270,47 @@ private struct OpenIslandIcon: View {
     let size: CGFloat
     var isAnimating: Bool = false
     var tint: Color = .mint
+    var scoutPhase: OpenIslandBrandMark.ScoutPhase = .idle
 
     var body: some View {
-        OpenIslandBrandMark(
-            size: size,
-            tint: tint,
-            isAnimating: isAnimating,
-            style: .duotone
-        )
+        HStack(spacing: size * 0.15) {
+            OpenIslandBrandMark(
+                size: size,
+                tint: tint,
+                isAnimating: isAnimating,
+                phase: scoutPhase,
+                style: .duotone
+            )
+            ScoutBadgeView(
+                size: size,
+                phase: scoutPhase,
+                tint: tint
+            )
+            if scoutPhase == .compacting {
+                CompactSpinner(size: size * 0.8, tint: tint)
+            }
+        }
+    }
+}
+
+// MARK: - Spinning loading indicator
+
+struct CompactSpinner: View {
+    let size: CGFloat
+    var tint: Color = .white
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.7)
+            .stroke(tint, style: StrokeStyle(lineWidth: max(1, size * 0.15), lineCap: .round))
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(rotation))
+            .onAppear {
+                withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            }
     }
 }
 
@@ -2084,11 +2465,9 @@ struct MenuBarContentView: View {
                 model.showSettings()
             }
 
-            #if DEBUG
             Button(model.lang.t("menu.openDebug")) {
                 model.showControlCenter()
             }
-            #endif
 
             Text(model.acceptanceStatusTitle)
                 .font(.subheadline.weight(.semibold))
@@ -2183,48 +2562,53 @@ struct MenuBarContentView: View {
 extension MarkdownUI.Theme {
     @MainActor static let completionCard = Theme()
         .text {
-            ForegroundColor(.white.opacity(0.88))
+            ForegroundColor(.white.opacity(0.9))
             FontSize(13.5)
-            FontWeight(.medium)
+            FontWeight(.regular)
         }
         .link {
-            ForegroundColor(.blue)
+            ForegroundColor(Color(red: 0.4, green: 0.7, blue: 1.0))
         }
         .strong {
-            FontWeight(.bold)
+            FontWeight(.semibold)
+            ForegroundColor(.white.opacity(0.95))
         }
         .code {
             FontFamilyVariant(.monospaced)
-            FontSize(12.5)
-            ForegroundColor(.white.opacity(0.88))
-            BackgroundColor(.white.opacity(0.08))
+            FontSize(12)
+            ForegroundColor(Color(red: 0.7, green: 0.85, blue: 1.0))
+            BackgroundColor(.white.opacity(0.06))
         }
         .codeBlock { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontFamilyVariant(.monospaced)
-                    FontSize(12.5)
-                    ForegroundColor(.white.opacity(0.88))
+                    FontSize(12)
+                    ForegroundColor(.white.opacity(0.85))
                 }
-                .padding(10)
-                .background(Color.white.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(12)
+                .background(Color.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.white.opacity(0.06))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .heading1 { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontSize(16)
                     FontWeight(.bold)
-                    ForegroundColor(.white.opacity(0.88))
+                    ForegroundColor(.white.opacity(0.95))
                 }
-                .markdownMargin(top: 8, bottom: 4)
+                .markdownMargin(top: 10, bottom: 4)
         }
         .heading2 { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontSize(15)
                     FontWeight(.bold)
-                    ForegroundColor(.white.opacity(0.88))
+                    ForegroundColor(.white.opacity(0.92))
                 }
                 .markdownMargin(top: 8, bottom: 4)
         }
@@ -2233,20 +2617,21 @@ extension MarkdownUI.Theme {
                 .markdownTextStyle {
                     FontSize(14)
                     FontWeight(.semibold)
-                    ForegroundColor(.white.opacity(0.88))
+                    ForegroundColor(.white.opacity(0.9))
                 }
                 .markdownMargin(top: 6, bottom: 2)
         }
         .blockquote { configuration in
             configuration.label
                 .markdownTextStyle {
-                    ForegroundColor(.white.opacity(0.6))
-                    FontSize(13.5)
+                    ForegroundColor(.white.opacity(0.55))
+                    FontSize(13)
+                    FontStyle(.italic)
                 }
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.2))
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Color.white.opacity(0.15))
                         .frame(width: 3)
                 }
         }
