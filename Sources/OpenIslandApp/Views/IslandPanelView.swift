@@ -1624,7 +1624,16 @@ private struct IslandSessionRow: View {
                         .buttonStyle(IslandWideButtonStyle(kind: .secondary))
                     Button("Yes") { onApprove?(.allowOnce) }
                         .buttonStyle(IslandWideButtonStyle(kind: .warning))
-                    if let toolName = session.permissionRequest?.toolName {
+                    // Mirror Claude terminal's option 2: combine all
+                    // suggestions into one button. Fall back to a generic
+                    // "Always Allow" when Claude sends no suggestions.
+                    if let suggestions = session.permissionRequest?.suggestedUpdates,
+                       !suggestions.isEmpty {
+                        Button(combinedSuggestionLabel(suggestions)) {
+                            onApprove?(.allowWithUpdates(suggestions))
+                        }
+                        .buttonStyle(IslandWideButtonStyle(kind: .danger))
+                    } else if let toolName = session.permissionRequest?.toolName {
                         Button("Always Allow (\(toolName))") {
                             let rule = ClaudePermissionRuleValue(toolName: toolName)
                             let update = ClaudePermissionUpdate.addRules(
@@ -1639,6 +1648,60 @@ private struct IslandSessionRow: View {
                 }
             }
         }
+    }
+
+    /// Strip the `mcp__` prefix (case-insensitive) and flatten
+    /// double-underscores so MCP tools read cleaner (e.g.
+    /// `mcp__mcp-misc__search_web` → `mcp-misc · search_web`).
+    /// Claude uses "Mcp__" in header titles but "mcp__" in rule toolNames,
+    /// so we match both.
+    private func prettyToolName(_ name: String) -> String {
+        let prefix = "mcp__"
+        guard name.lowercased().hasPrefix(prefix) else { return name }
+        let trimmed = String(name.dropFirst(prefix.count))
+        return trimmed.replacingOccurrences(of: "__", with: " · ")
+    }
+
+    /// Generate a single label that mirrors Claude terminal's option 2.
+    ///
+    /// Priority order is intentional — Claude may send multiple suggestions
+    /// in one PermissionRequest, and we must pick the most specific label:
+    ///   1. addRules with .claude/ pattern  → "Settings edit"
+    ///   2. addDirectories                  → "All edits in dirName/"
+    ///      (setMode+addDirectories is the "outside working dir" case;
+    ///       skip setMode here so the directory wins)
+    ///   3. addRules (non-.claude/)         → "Always allow toolName"
+    ///   4. setMode(acceptEdits)            → "All edits"
+    private func combinedSuggestionLabel(_ suggestions: [ClaudePermissionUpdate]) -> String {
+        // 1. Settings edit (.claude/ folder)
+        for case let .addRules(_, rules, _) in suggestions {
+            if rules.contains(where: { $0.ruleContent?.contains(".claude/") == true }) {
+                return "Allow settings edit"
+            }
+        }
+
+        // 2. Outside working dir: addDirectories wins over setMode
+        for case let .addDirectories(_, dirs) in suggestions {
+            if let dir = dirs.first.map({ ($0 as NSString).lastPathComponent }), !dir.isEmpty {
+                return "All edits in \(dir)/"
+            }
+        }
+
+        // 3. addRules — honor deny behavior and show ruleContent if present
+        //    (e.g. Bash with `ls:*` prefix → "Always allow Bash(ls:*)")
+        for case let .addRules(_, rules, behavior) in suggestions {
+            guard let rule = rules.first else { continue }
+            let action = behavior == .allow ? "Always allow" : "Always deny"
+            let name = prettyToolName(rule.toolName)
+            return rule.ruleContent.map { "\(action) \(name)(\($0))" } ?? "\(action) \(name)"
+        }
+
+        // 4. setMode(acceptEdits) — inside working dir
+        for case .setMode(_, .acceptEdits) in suggestions {
+            return "All edits (session)"
+        }
+
+        return "Always allow"
     }
 
     // MARK: - Question action area
@@ -2265,8 +2328,12 @@ private struct IslandWideButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 11.5, weight: .semibold))
             .foregroundStyle(foregroundColor)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
+            .padding(.horizontal, 8)
             .background(backgroundColor(configuration.isPressed), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 

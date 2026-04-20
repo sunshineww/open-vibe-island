@@ -2432,9 +2432,15 @@ public final class BridgeServer: @unchecked Sendable {
 
         switch (pendingInteraction.kind, resolution) {
         case let (.permission(payload), .allowOnce(updatedInput, updatedPermissions)):
-            let finalInput = updatedInput ?? payload.toolInput
+            // Pass `updatedInput` through as-is. Do NOT fall back to
+            // `payload.toolInput` — Claude Code 2.1.x treats a present
+            // `updatedInput` as "the user modified the tool call" and re-runs
+            // its permission/validation pipeline against the echoed value,
+            // which silently rejects the allow and keeps the terminal prompt
+            // visible. Omitting `updatedInput` tells Claude to proceed with
+            // the original call unchanged.
             directive = .permissionRequest(
-                .allow(updatedInput: finalInput, updatedPermissions: updatedPermissions)
+                .allow(updatedInput: updatedInput, updatedPermissions: updatedPermissions)
             )
             summary = payload.toolName.map { "Permission approved for \($0)." } ?? "Permission approved."
             phase = .running
@@ -2447,9 +2453,10 @@ public final class BridgeServer: @unchecked Sendable {
             phase = .completed
 
         case let (.question(payload, _), .allowOnce(updatedInput, updatedPermissions)):
-            let finalInput = updatedInput ?? payload.toolInput
+            // Same rule as the permission branch: only send `updatedInput`
+            // when the user actually changed something. See the comment above.
             directive = .permissionRequest(
-                .allow(updatedInput: finalInput, updatedPermissions: updatedPermissions)
+                .allow(updatedInput: updatedInput, updatedPermissions: updatedPermissions)
             )
             summary = "\(payload.resolvedAgentTool.displayName)'s questions were answered."
             phase = .running
