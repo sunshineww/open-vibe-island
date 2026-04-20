@@ -88,9 +88,17 @@ public struct SessionState: Equatable, Sendable {
                 return
             }
 
+            // Terminal-only approvals (e.g. Notification(permission_prompt)
+            // fallbacks) cannot be resolved through the island, so they must
+            // not pin the session in waitingForApproval. The next
+            // activityUpdated(.running) from Claude — which arrives once the
+            // user has answered in the terminal — is our only signal that
+            // the prompt was cleared, so let it flow through and drop the
+            // permissionRequest naturally.
             let keepsPendingApproval = payload.phase == .running
                 && session.phase == .waitingForApproval
                 && session.permissionRequest != nil
+                && session.permissionRequest?.requiresTerminalApproval != true
             let keepsPendingQuestion = payload.phase == .running
                 && session.phase == .waitingForAnswer
                 && session.questionPrompt != nil
@@ -167,7 +175,16 @@ public struct SessionState: Equatable, Sendable {
                 return
             }
 
-            session.jumpTarget = payload.jumpTarget
+            // Don't overwrite a known terminal app with "Unknown"
+            if payload.jumpTarget.terminalApp == "Unknown",
+               let existing = session.jumpTarget,
+               existing.terminalApp != "Unknown" {
+                var updated = payload.jumpTarget
+                updated.terminalApp = existing.terminalApp
+                session.jumpTarget = updated
+            } else {
+                session.jumpTarget = payload.jumpTarget
+            }
             session.updatedAt = payload.timestamp
             Self.refreshCodexAppClassification(for: &session)
             upsert(session)

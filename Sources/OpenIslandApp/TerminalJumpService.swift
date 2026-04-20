@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 import OpenIslandCore
 
@@ -393,7 +394,6 @@ struct TerminalJumpService {
                 if appIsRunning, jetBrainsWindowFocuser(id, target) {
                     return "Focused the matching \(descriptor.displayName) window."
                 }
-            case let id where Self.jetbrainsBundleIDs.contains(id):
                 if let workingDirectory = target.workingDirectory {
                     let opened = jumpToJetBrainsProject(workingDirectory, bundleIdentifier: id)
                     if opened {
