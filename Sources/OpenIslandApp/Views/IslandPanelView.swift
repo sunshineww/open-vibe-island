@@ -1638,15 +1638,9 @@ private struct IslandSessionRow: View {
                             onApprove?(.allowWithUpdates(suggestions))
                         }
                         .buttonStyle(IslandWideButtonStyle(kind: .danger))
-                    } else if let toolName = session.permissionRequest?.toolName {
-                        Button("Always Allow (\(toolName))") {
-                            let rule = ClaudePermissionRuleValue(toolName: toolName)
-                            let update = ClaudePermissionUpdate.addRules(
-                                destination: .session,
-                                rules: [rule],
-                                behavior: .allow
-                            )
-                            onApprove?(.allowWithUpdates([update]))
+                    } else if session.permissionRequest?.toolName != nil {
+                        Button(fallbackAlwaysAllowLabel) {
+                            onApprove?(.allowWithUpdates(fallbackAlwaysAllowUpdates))
                         }
                         .buttonStyle(IslandWideButtonStyle(kind: .danger))
                     }
@@ -1657,6 +1651,38 @@ private struct IslandSessionRow: View {
 
     /// Strip the `mcp__` prefix (case-insensitive) and flatten
     /// double-underscores so MCP tools read cleaner (e.g.
+    /// Fallback "Always Allow" button — generates the right rule based on
+    /// the affected path. For ~/.claude/ paths, includes the `~/.claude/**`
+    /// ruleContent that Claude Code requires for self-config edits.
+    private var fallbackAlwaysAllowUpdates: [ClaudePermissionUpdate] {
+        let toolName = session.permissionRequest?.toolName ?? "Edit"
+        let path = session.permissionRequest?.affectedPath ?? ""
+        let home = NSHomeDirectory()
+
+        // ~/.claude/ paths need explicit pattern
+        if path.hasPrefix("\(home)/.claude/") {
+            let rule = ClaudePermissionRuleValue(toolName: toolName, ruleContent: "~/.claude/**")
+            return [ClaudePermissionUpdate.addRules(destination: .session, rules: [rule], behavior: .allow)]
+        }
+        // project .claude/ paths
+        if path.contains("/.claude/") {
+            let rule = ClaudePermissionRuleValue(toolName: toolName, ruleContent: "/.claude/**")
+            return [ClaudePermissionUpdate.addRules(destination: .session, rules: [rule], behavior: .allow)]
+        }
+
+        let rule = ClaudePermissionRuleValue(toolName: toolName)
+        return [ClaudePermissionUpdate.addRules(destination: .session, rules: [rule], behavior: .allow)]
+    }
+
+    private var fallbackAlwaysAllowLabel: String {
+        let path = session.permissionRequest?.affectedPath ?? ""
+        if path.contains("/.claude/") {
+            return "Allow settings edit"
+        }
+        let toolName = session.permissionRequest?.toolName ?? "Edit"
+        return "Always Allow (\(toolName))"
+    }
+
     /// `mcp__mcp-misc__search_web` → `mcp-misc · search_web`).
     /// Claude uses "Mcp__" in header titles but "mcp__" in rule toolNames,
     /// so we match both.
