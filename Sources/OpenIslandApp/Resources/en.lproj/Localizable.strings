@@ -154,6 +154,7 @@
 /* Island Panel - Question */
 "question.submit" = "Submit Answers";
 "question.answerNeeded" = "Answer needed";
+"question.otherPlaceholder" = "Type your answer…";
 
 /* Island Panel - Completion */
 "completion.done" = "Done";
