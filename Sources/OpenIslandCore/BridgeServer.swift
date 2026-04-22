@@ -970,6 +970,13 @@ public final class BridgeServer: @unchecked Sendable {
                 removeSubagent(agentID: agentID, fromSession: payload.sessionID)
             }
 
+            // If the main session already reached a terminal phase (e.g. Stop
+            // fired and then a late subagent/recap triggered SubagentStop),
+            // keep the terminal phase — a subagent finishing should not drag
+            // a completed session back to running.
+            let currentPhase = localState.session(id: payload.sessionID)?.phase ?? .running
+            let nextPhase: SessionPhase = currentPhase.isTerminal ? currentPhase : .running
+
             let summary = payload.lastAssistantMessage ?? payload.assistantMessagePreview
                 ?? payload.agentType.map { "Finished \($0) subagent." }
                 ?? "Finished \(payload.resolvedAgentTool.displayName) subagent."
@@ -978,7 +985,7 @@ public final class BridgeServer: @unchecked Sendable {
                     SessionActivityUpdated(
                         sessionID: payload.sessionID,
                         summary: summary,
-                        phase: .running,
+                        phase: nextPhase,
                         timestamp: .now
                     )
                 )
